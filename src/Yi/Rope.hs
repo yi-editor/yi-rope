@@ -1,8 +1,9 @@
 module Yi.Rope (Rope, fromString, toString, toReverseString, null, empty,
-                take, drop, Data.Rope.length, reverse, countNewLines,
-                Yi.Rope.split, Yi.Rope.splitAt, Yi.Rope.splitAtLine,
-                Yi.Rope.append, Yi.Rope.concat, Yi.Rope.readFile,
-                Yi.Rope.writeFile, Yi.Rope.splitAtChunkBefore) where
+                Yi.Rope.take, Yi.Rope.drop, Yi.Rope.length, reverse,
+                countNewLines, Yi.Rope.split, Yi.Rope.splitAt,
+                Yi.Rope.splitAtLine, Yi.Rope.append, Yi.Rope.concat,
+                Yi.Rope.readFile, Yi.Rope.writeFile)
+       where
 
 import qualified Codec.Binary.UTF8.Generic as G
 import           Data.Binary
@@ -17,7 +18,7 @@ toReverseString :: Rope -> String
 toReverseString = P.reverse . toString
 
 reverse :: Rope -> Rope
-reverse = fromLazyByteString . LB.reverse . toLazyByteString
+reverse = fromString . P.reverse . toString
 
 countNewLines :: Rope -> Int
 countNewLines = fromIntegral . LB.count 10 . toLazyByteString
@@ -27,9 +28,6 @@ split c = map fromLazyByteString . LB.split c . toLazyByteString
 
 splitAt :: Int -> Rope -> (Rope, Rope)
 splitAt = G.splitAt
-
-splitAtChunkBefore :: Int -> Rope -> (Rope, Rope)
-splitAtChunkBefore = Yi.Rope.splitAt
 
 -- | Split before the specified line. Lines are indexed from 0.
 splitAtLine :: Int -> Rope -> (Rope, Rope)
@@ -52,3 +50,10 @@ writeFile f = writeFileL f . toLazyByteString
 
 readFile :: FilePath -> IO Rope
 readFile f = fromLazyByteString `fmap` LB.readFile f
+
+drop, take :: Int -> Rope -> Rope
+take i = fst . G.splitAt i
+drop i = snd . G.splitAt i
+
+length :: Rope -> Int
+length = G.length

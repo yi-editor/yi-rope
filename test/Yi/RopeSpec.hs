@@ -11,6 +11,9 @@ import           Test.Hspec
 import           Test.Hspec.QuickCheck
 import           Test.QuickCheck (Arbitrary(..))
 import           Test.QuickCheck.Instances ()
+import Test.QuickCheck
+import Data.Text hiding (map)
+import qualified Codec.Binary.UTF8.String as G
 
 main ∷ IO ()
 main = hspec spec
