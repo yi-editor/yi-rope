@@ -1,3 +1,14 @@
+{-# OPTIONS_HADDOCK show-extensions #-}
+
+-- |
+-- Module      :  Yi.Rope
+-- License     :  GPL-2
+-- Maintainer  :  yi-devel@googlegroups.com
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- A work in progress module that aims to be a more efficient
+-- replacement for "Yi.OldRope". For now, please import "Yi.OldRope"!
 module Yi.Rope (Rope, fromString, toString, toReverseString, null, empty,
                 Yi.Rope.take, Yi.Rope.drop, Yi.Rope.length, reverse,
                 countNewLines, Yi.Rope.split, Yi.Rope.splitAt,
@@ -7,7 +18,7 @@ module Yi.Rope (Rope, fromString, toString, toReverseString, null, empty,
 
 import qualified Codec.Binary.UTF8.Generic as G
 import           Data.Binary
-import qualified Data.ByteString.Lazy as LB (readFile, split, count, reverse)
+import qualified Data.ByteString.Lazy as LB (readFile, split, count)
 import           Data.Monoid
 import           Data.Rope
 import qualified Prelude as P

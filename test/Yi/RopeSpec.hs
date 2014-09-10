@@ -2,18 +2,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Yi.RopeSpec (main, spec) where
 
-import           Control.Applicative
-import           Data.Binary
-import qualified Data.ByteString as BS
-import qualified Yi.Rope as R
-import qualified Yi.OldRope as O
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
-import           Test.QuickCheck (Arbitrary(..))
 import           Test.QuickCheck.Instances ()
-import Test.QuickCheck
-import Data.Text hiding (map)
-import qualified Codec.Binary.UTF8.String as G
+import qualified Yi.OldRope as O
+import qualified Yi.Rope as R
 
 main ∷ IO ()
 main = hspec spec
