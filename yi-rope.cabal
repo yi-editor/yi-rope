@@ -1,7 +1,7 @@
 name:                yi-rope
 version:             0.1.0.0
 synopsis:            A rope data structure used by Yi
- description:        A rope data structure used by Yi
+description:         A rope data structure used by Yi
 license:             GPL-3
 license-file:        LICENSE
 author:              Mateusz Kowalczyk
@@ -65,3 +65,8 @@ benchmark bench
     , random
     , deepseq
     , yi-rope
+
+
+source-repository head
+  type:     git
+  location: https://github.com/yi-editor/yi-rope.git
