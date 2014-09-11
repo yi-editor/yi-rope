@@ -110,6 +110,14 @@ instance NFData YiChunk where
 instance NFData YiString where
   rnf = rnf . toText
 
+instance IsString YiString where
+  fromString = Yi.Rope.fromString
+
+instance Monoid YiString where
+  mempty = Yi.Rope.empty
+  mappend = Yi.Rope.append
+  mconcat = Yi.Rope.concat
+
 (-|) :: YiChunk -> FingerTree Size YiChunk -> FingerTree Size YiChunk
 b -| t | chunkSize b == 0 = t
        | otherwise        = b <| t
@@ -197,9 +205,6 @@ toText = TX.concat . go . fromRope
 -- with 'TX.Text' anyway.
 toReverseText :: YiString -> TX.Text
 toReverseText = TX.reverse . toText
-
-instance IsString YiString where
-  fromString = Yi.Rope.fromString
 
 -- | Checks if the given 'YiString' is actually empty.
 null :: YiString -> Bool
