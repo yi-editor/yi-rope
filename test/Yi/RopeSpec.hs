@@ -1,59 +1,47 @@
-{-# LANGUAGE UnicodeSyntax #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Yi.RopeSpec (main, spec) where
 
+import qualified Data.Text as T
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
 import           Test.QuickCheck.Instances ()
-import qualified Yi.Rope as F
+import qualified Yi.Rope as R
 
-main ∷ IO ()
+main :: IO ()
 main = hspec spec
-{-
-infixr 2 `isLike`
-isLike :: (Show a, Eq a) => (R.Rope -> a) -> (F.YiString -> a)
-       -> String -> Expectation
-f `isLike` g = \s -> f (R.fromString s) `shouldBe` g (F.fromString s)
 
-infixr 2 `stringIsLike`
-stringIsLike :: (String -> R.Rope) -> (String -> F.YiString)
-             -> String -> Expectation
-f `stringIsLike` g = \s -> (R.toString . f $ s) `shouldBe` (F.toString . g $ s)
+infix 1 `isLike`
+-- | Converts the input to R.YiString before comparing results.
+isLike :: (Show a, Eq a) => (R.YiString -> a)
+       -> (T.Text -> a)
+       -> T.Text
+       -> Expectation
+f `isLike` g = \t -> (f . R.fromText) t `shouldBe` g t
 
-infixr 2 `sIsLike`
-sIsLike :: (R.Rope -> R.Rope) -> (F.YiString -> F.YiString) -> String -> Expectation
-f `sIsLike` g = R.toString . f `isLike` F.toString . g
+infix 1 `isLikeT`
+-- | Applies given function over underlying 'R.YiString'.
+isLikeT :: (R.YiString -> R.YiString)
+        -> (T.Text -> T.Text)
+        -> T.Text
+        -> Expectation
+f `isLikeT` g = \t -> (R.toText . f . R.fromText) t `shouldBe` g t
 
-infixr 2 `ssIsLike`
-
-ssIsLike :: (R.Rope -> R.Rope) -> (F.YiString -> F.YiString) -> String -> Expectation
-f `ssIsLike` g = \s ->
-  (R.toString . f . R.fromString) s `shouldBe` (F.toString . g . F.fromString) s
--}
-spec ∷ Spec
-spec = modifyMaxSize (const 10000) $ do
-  describe "tests" $ do
-    it "" pending
-{-
-    prop "toString" $ R.toString `isLike` F.toString
-    prop "toReverseString" $ R.toReverseString `isLike` F.toReverseString
-    prop "null" $ R.null `isLike` F.null
-    prop "empty" $ const R.empty `stringIsLike` const F.empty
-    prop "take" $ \i -> R.take i `sIsLike` F.take i
-    prop "drop" $ \i -> R.drop i `sIsLike` F.drop i
-    prop "length" $ R.length `isLike` F.length
-    prop "reverse" $ R.reverse `sIsLike` F.reverse
-    prop "countNewLines" $ R.countNewLines `isLike` F.countNewLines
-    -- prop "split" $ map R.toString . R.split 10 `isLike` map F.toString . F.lines
-    prop "fst . splitAt" $ \i -> fst . R.splitAt i `sIsLike` fst . F.splitAt i
-    prop "snd . splitAt" $ \i -> snd . R.splitAt i `sIsLike` snd . F.splitAt i
-    prop "fst . splitAtLine"
-      $ \i -> fst . R.splitAtLine i `sIsLike` fst . F.splitAtLine i
-    prop "snd . splitAtLine"
-      $ \i -> snd . R.splitAtLine i `sIsLike` snd . F.splitAtLine i
-    modifyMaxSize (const 100) $ prop "append"
-      $ \s -> R.append (R.fromString s) `ssIsLike` F.append (F.fromString s)
-    prop "concat" $ \s -> (R.toString . R.concat . map R.fromString) s
-                          `shouldBe`
-                          (F.toString . F.concat . map F.fromString) s
--}
+spec :: Spec
+spec = modifyMaxSize (const 1000) $ do
+  describe "Working with YiString is just like working with Text" $ do
+    prop "id ~ id" $ id `isLikeT` id
+    prop "R.take ~ T.take" $ \i -> R.take i `isLikeT` T.take i
+    prop "R.drop ~ T.drop" $ \i -> R.drop i `isLikeT` T.drop i
+    prop "R.reverse ~ T.reverse" $ R.reverse `isLikeT` T.reverse
+    prop "R.length ~ T.length" $ R.length `isLike` T.length
+    prop "R.null ~ T.null" $ R.null `isLike` T.null
+    prop "R.countNewLines ~ T.count \\n" $ R.countNewLines `isLike` T.count "\n"
+    prop "R.empty ~ T.empty" $ R.toText R.empty `shouldBe` T.empty
+    prop "fst . R.splitAt ~ fst . T.splitAt" $ \i ->
+      fst . R.splitAt i `isLikeT` fst . T.splitAt i
+    prop "snd . R.splitAt ~ snd . T.splitAt" $ \i ->
+      snd . R.splitAt i `isLikeT` snd . T.splitAt i
+    prop "R.append ~ T.append" $ \t ->
+      R.append (R.fromText t) `isLikeT` T.append t
+    prop "R.concat ~ T.concat" $ \s ->
+      (R.toText . R.concat . map R.fromText) s `shouldBe` T.concat s

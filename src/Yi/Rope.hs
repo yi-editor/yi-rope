@@ -25,7 +25,8 @@ module Yi.Rope (
    Yi.Rope.YiString,
 
    -- * Conversions to YiString
-   Yi.Rope.fromString, Yi.Rope.fromText, Yi.Rope.fromText',
+   Yi.Rope.fromString, Yi.Rope.fromText,
+   Yi.Rope.fromString', Yi.Rope.fromText',
 
    -- * Conversions from YiString
    Yi.Rope.toString, Yi.Rope.toReverseString,

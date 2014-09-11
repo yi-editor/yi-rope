@@ -5,15 +5,10 @@ module Main where
 import           Control.DeepSeq
 import           Criterion.Main
 import qualified Criterion.Main as C
-import           Data.Text (unlines, length, pack, unpack,
-                            filter, count, lines, Text,
-                            concat, replicate)
+import           Data.Text (unlines, Text, replicate)
+import           Prelude hiding (unlines)
 import qualified Yi.Rope as F
-import Prelude hiding (unlines)
 
-type Bench a = Input -> Name -> a -> C.Benchmark
-type Input = String
-type Name = String
 
 longText :: Text
 longText = force . Data.Text.unlines
