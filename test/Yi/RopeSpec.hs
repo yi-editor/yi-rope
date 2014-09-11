@@ -45,3 +45,9 @@ spec = modifyMaxSize (const 1000) $ do
       R.append (R.fromText t) `isLikeT` T.append t
     prop "R.concat ~ T.concat" $ \s ->
       (R.toText . R.concat . map R.fromText) s `shouldBe` T.concat s
+    prop "R.head ~ T.head" $ R.head `isLike` (\x -> if T.null x
+                                                    then Nothing
+                                                    else Just (T.head x))
+    prop "R.last ~ T.last" $ R.last `isLike` (\x -> if T.null x
+                                                    then Nothing
+                                                    else Just (T.last x))

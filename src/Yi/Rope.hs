@@ -39,6 +39,8 @@ module Yi.Rope (
    Yi.Rope.lines, Yi.Rope.lines',
    Yi.Rope.splitAt, Yi.Rope.splitAtLine,
 
+   Yi.Rope.head, Yi.Rope.last,
+
    Yi.Rope.append, Yi.Rope.concat,
 
    -- * IO
@@ -226,6 +228,18 @@ append (YiString t) (YiString t') = YiString $ t T.>< t'
 -- | Concat a list of 'YiString's.
 concat :: [YiString] -> YiString
 concat = L.foldl' append empty
+
+-- | Take the first character of the underlying string if possible.
+head :: YiString -> Maybe Char
+head (YiString t) = case viewl t of
+  Chunk _ x :< _ -> if TX.null x then Nothing else Just (TX.head x)
+  EmptyL          -> Nothing
+
+-- | Take the last character of the underlying string if possible.
+last :: YiString -> Maybe Char
+last (YiString t) = case viewr t of
+  _ :> Chunk _ x -> if TX.null x then Nothing else Just (TX.last x)
+  EmptyR          -> Nothing
 
 -- | Splits the string at given character position.
 --
