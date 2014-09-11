@@ -25,7 +25,7 @@ module Yi.Rope (
    Yi.Rope.YiString,
 
    -- * Conversions to YiString
-   Yi.Rope.fromString, Yi.Rope.fromText,
+   Yi.Rope.fromString, Yi.Rope.fromText, Yi.Rope.fromText',
 
    -- * Conversions from YiString
    Yi.Rope.toString, Yi.Rope.toReverseString,
@@ -115,9 +115,15 @@ b -| t | chunkSize b == 0 = t
 t |- b | chunkSize b == 0 = t
        | otherwise        = t |> b
 
--- | Default size chunk to use. Currently @128@.
+-- | Default size chunk to use. Currently @1200@ as this is what
+-- benchmarks suggest.
+--
+-- This makes the biggest difference with 'lines'-like and
+-- 'concat'-like functions. Bigger chunks make 'concat' (much) faster
+-- but 'lines' slower. In general it seems that we benefit more from
+-- larger chunks and 1200 seems to be the sweet spot.
 defaultChunkSize :: Int
-defaultChunkSize = 128
+defaultChunkSize = 1200
 
 -- | Reverse the whole underlying string.
 --

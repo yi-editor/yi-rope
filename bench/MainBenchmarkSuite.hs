@@ -8,8 +8,7 @@ import qualified Criterion.Main as C
 import           Data.Text (unlines, length, pack, unpack,
                             filter, count, lines, Text,
                             concat, replicate)
-import qualified Yi.FastRope as F
-import qualified Yi.OldRope as O
+import qualified Yi.Rope as F
 import Prelude hiding (unlines)
 
 type Bench a = Input -> Name -> a -> C.Benchmark
@@ -30,28 +29,24 @@ longFRope :: F.YiString
 longFRope = force (F.fromText longText)
 {-# NOINLINE longFRope #-}
 
-longORope :: O.Rope
-longORope = force (O.fromString $ Data.Text.unpack longText)
-{-# NOINLINE longORope #-}
-
 wideText :: Text
 wideText = force . unlines
          $ Prelude.replicate 10
          $ Data.Text.replicate 100 "Lorem Спасибопожалусто dolor 中文測試 amet "
 {-# NOINLINE wideText #-}
 
-wideORope :: O.Rope
-wideORope = force (O.fromString $ Data.Text.unpack wideText)
-{-# NOINLINE wideORope #-}
+shortText :: Text
+shortText = force . unlines
+         $ Prelude.replicate 3 "Lorem Спасибопожалусто dolor 中文測試 amet"
+{-# NOINLINE shortText #-}
 
+tinyText :: Text
+tinyText = force $ "Lorem Спасибопожалусто dolor 中文測試 amet"
+{-# NOINLINE tinyText #-}
 
 wideFRope :: F.YiString
 wideFRope = force (F.fromText wideText)
 {-# NOINLINE wideFRope #-}
-
-instance NFData O.Rope where
-  rnf r = O.toString r `deepseq` ()
-
 
 benchOnText :: NFData b => a -> String -> (a -> b) -> Benchmark
 benchOnText text name f
@@ -70,66 +65,69 @@ benchTakeDrop text name f
     = C.bench name
     $ C.nf (\x -> foldr f x [1000, 999 .. 1]) text
 
+-- | Chunk sizes to test with.
+chunkSizes :: [Int]
+chunkSizes = [1200]
+
+wideTexts :: (Int -> String, [(Int, F.YiString)])
+wideTexts = (\x -> "wide " ++ show x, mkTextSample wideText)
+
+longTexts :: (Int -> String, [(Int, F.YiString)])
+longTexts = (\x -> "long " ++ show x, mkTextSample longText)
+
+shortTexts :: (Int -> [Char], [(Int, F.YiString)])
+shortTexts = (\x -> "short " ++ show x, mkTextSample shortText)
+
+tinyTexts :: (Int -> String, [(Int, F.YiString)])
+tinyTexts = (\x -> "tiny " ++ show x, mkTextSample tinyText)
+
+mkTextSample :: Text -> [(Int, F.YiString)]
+mkTextSample s = force $ zipWith mkTexts chunkSizes (Prelude.repeat s)
+  where
+    mkTexts :: Int -> Text -> (Int, F.YiString)
+    mkTexts x t = (x, F.fromText' x t)
+
+allTexts :: [(Int -> String, [(Int, F.YiString)])]
+allTexts = [longTexts {-, wideTexts, shortTexts, tinyTexts -}]
+
+-- | Sample usage:
+--
+-- > mkGroup "drop" F.drop allTexts benchOnText
+mkGroup :: String -- ^ Group name
+        -> f -- ^ Function being benchmarked
+        -> [(Int -> String, [(Int, F.YiString)])]
+        -> (F.YiString -> String -> f -> Benchmark)
+        -> Benchmark
+mkGroup n f subs r = bgroup n tests
+  where
+    mkTest s (l, t) = r t (s l) f
+    tests = Prelude.concat $ map (\(s, t) -> map (mkTest s) t) subs
+
+onTextGroup :: NFData a => String -> (F.YiString -> a) -> Benchmark
+onTextGroup n f = mkGroup n f allTexts benchOnText
+
+onIntGroup :: String -> (Int -> F.YiString -> F.YiString) -> Benchmark
+onIntGroup n f = mkGroup n f allTexts benchTakeDrop
+
+onSplitGroup :: String
+             -> (Int -> F.YiString -> (F.YiString, F.YiString))
+             -> Benchmark
+onSplitGroup n f = mkGroup n f allTexts benchSplitAt
+
 main :: IO ()
 main = defaultMain
-  [ benchOnText longORope "long O.countNewLines" O.countNewLines
-  , benchOnText longFRope "long F.countNewLines" F.countNewLines
-  , benchOnText wideORope "wide O.countNewLines" O.countNewLines
-  , benchOnText wideFRope "wide F.countNewLines" F.countNewLines
-  , benchOnText longORope "long O.split \\n" (O.split 10)
-  , benchOnText longFRope "long F.lines" F.lines
-  , benchOnText wideORope "wide O.split \\n" (O.split 10)
-  , benchOnText wideFRope "wide F.lines" F.lines
-  , benchSplitAt longORope "varied long O.splitAt" O.splitAt
-  , benchSplitAt longFRope "varied long F.splitAt" F.splitAt
-  , benchSplitAt wideORope "varied wide O.splitAt" O.splitAt
-  , benchSplitAt wideFRope "varied wide F.splitAt" F.splitAt
-  , benchSplitAt longORope "varied long O.splitAtLine" O.splitAtLine
-  , benchSplitAt longFRope "varied long F.splitAtLine" F.splitAtLine
-  , benchSplitAt wideORope "varied wide O.splitAtLine" O.splitAtLine
-  , benchSplitAt wideFRope "varied wide F.splitAtLine" F.splitAtLine
-  , benchTakeDrop longORope "long O.drop" O.drop
-  , benchTakeDrop longFRope "long F.drop" F.drop
-  , benchTakeDrop wideORope "wide O.drop" O.drop
-  , benchTakeDrop wideFRope "wide F.drop" F.drop
-  , benchTakeDrop longORope "long O.take" O.take
-  , benchTakeDrop longFRope "long F.take" F.take
-  , benchTakeDrop wideORope "wide O.take" O.take
-  , benchTakeDrop wideFRope "wide F.take" F.take
-  , benchOnText longORope "long O.toReverseString" O.toReverseString
-  , benchOnText longFRope "long F.toReverseText" F.toReverseText
-  , benchOnText wideORope "wide O.toReverseString" O.toReverseString
-  , benchOnText wideFRope "wide F.toReverseText" F.toReverseText
-  , benchOnText longORope "long O.toString" O.toString
-  , benchOnText longFRope "long F.toText" F.toText
-  , benchOnText wideORope "wide O.toString" O.toString
-  , benchOnText wideFRope "wide F.toText" F.toText
-  , benchOnText longORope "long O.null" O.null
-  , benchOnText longFRope "long F.null" F.null
-  , benchOnText wideORope "wide O.null" O.null
-  , benchOnText wideFRope "wide F.null" F.null
-  , benchOnText longORope "long O.empty" (const O.empty)
-  , benchOnText longFRope "long F.empty" (const F.empty)
-  , benchOnText wideORope "wide O.empty" (const O.empty)
-  , benchOnText wideFRope "wide F.empty" (const F.empty)
-  , benchOnText longORope "long O.length" O.length
-  , benchOnText longFRope "long F.length" F.length
-  , benchOnText wideORope "wide O.length" O.length
-  , benchOnText wideFRope "wide F.length" F.length
-  , benchOnText longORope "long O.reverse" O.reverse
-  , benchOnText longFRope "long F.reverse" F.reverse
-  , benchOnText wideORope "wide O.reverse" O.reverse
-  , benchOnText wideFRope "wide F.reverse" F.reverse
-  , benchOnText longORope "long O.append" (\x -> O.append x x)
-  , benchOnText longFRope "long F.append" (\x -> F.append x x)
-  , benchOnText wideORope "wide O.append" (\x -> O.append x x)
-  , benchOnText wideFRope "wide F.append" (\x -> F.append x x)
-  , benchOnText longORope "long O.concat 10" (\x -> O.concat (Prelude.replicate 10 x))
-  , benchOnText longFRope "long F.concat 10" (\x -> F.concat (Prelude.replicate 10 x))
-  , benchOnText wideORope "wide O.concat 10" (\x -> O.concat (Prelude.replicate 10 x))
-  , benchOnText wideFRope "wide F.concat 10" (\x -> F.concat (Prelude.replicate 10 x))
-  , benchOnText longORope "long O.concat 100" (\x -> O.concat (Prelude.replicate 100 x))
-  , benchOnText longFRope "long F.concat 100" (\x -> F.concat (Prelude.replicate 100 x))
-  , benchOnText wideORope "wide O.concat 100" (\x -> O.concat (Prelude.replicate 100 x))
-  , benchOnText wideFRope "wide F.concat 100" (\x -> F.concat (Prelude.replicate 100 x))
+  [ onIntGroup "drop" F.drop
+  , onIntGroup "take" F.take
+  , onTextGroup "countNewLines" F.countNewLines
+  , onTextGroup "lines" F.lines
+  , onSplitGroup "splitAt" F.splitAt
+  , onSplitGroup "splitAtLine" F.splitAtLine
+  , onTextGroup "toReverseText" F.toReverseText
+  , onTextGroup "toText" F.toText
+  , onTextGroup "length" F.length
+  , onTextGroup "reverse" F.reverse
+  , onTextGroup "null" F.null
+  , onTextGroup "empty" $ const F.empty
+  , onTextGroup "append" (\x -> F.append x x)
+  , onTextGroup "concat x100" $ F.concat . Prelude.replicate 100
   ]
