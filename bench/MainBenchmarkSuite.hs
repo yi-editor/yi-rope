@@ -117,9 +117,6 @@ onSplitGroup :: String
              -> Benchmark
 onSplitGroup n f = mkGroup n f allTexts benchSplitAt
 
-tdb = defaultMain [ onIntGroup "take" F.take
-                  , onIntGroup "drop" F.drop ]
-
 main :: IO ()
 main = defaultMain
   [ onIntGroup "drop" F.drop

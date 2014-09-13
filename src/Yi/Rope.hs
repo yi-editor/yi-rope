@@ -65,7 +65,7 @@ import           Prelude hiding (drop)
 -- | Used to cache the size of the strings.
 data Size = Indices { charIndex :: {-# UNPACK #-} !Int
                       -- ^ How many characters under here?
-                    , lineIndex :: {-# UNPACK #-} !Int
+                    , lineIndex :: Int
                       -- ^ How many lines under here?
                     } deriving (Eq, Show)
 
