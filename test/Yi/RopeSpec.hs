@@ -51,3 +51,7 @@ spec = modifyMaxSize (const 1000) $ do
     prop "R.last ~ T.last" $ R.last `isLike` (\x -> if T.null x
                                                     then Nothing
                                                     else Just (T.last x))
+    prop "R.cons ~ T.cons" $ \c -> R.cons c `isLikeT` T.cons c
+    prop "R.snoc ~ T.snoc" $ \c -> R.cons c `isLikeT` T.cons c
+    prop "R.singleton ~ T.singleton" $
+      \c -> (R.toText . R.singleton) c `shouldBe` T.singleton c

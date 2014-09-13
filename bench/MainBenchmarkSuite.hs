@@ -85,13 +85,18 @@ mkTextSample s = force $ zipWith mkTexts chunkSizes (Prelude.repeat s)
 allTexts :: [(Int -> String, [(Int, F.YiString)])]
 allTexts = [longTexts {-, wideTexts, shortTexts, tinyTexts -}]
 
+allChars :: [(Int -> String, [(Int, Char)])]
+allChars = map mkChar "λa"
+  where
+    mkChar c = (\x -> unwords [ "char", [c], show x ], [(1, c)])
+
 -- | Sample usage:
 --
 -- > mkGroup "drop" F.drop allTexts benchOnText
 mkGroup :: String -- ^ Group name
         -> f -- ^ Function being benchmarked
-        -> [(Int -> String, [(Int, F.YiString)])]
-        -> (F.YiString -> String -> f -> Benchmark)
+        -> [(chsize -> String, [(chsize, input)])]
+        -> (input -> String -> f -> Benchmark)
         -> Benchmark
 mkGroup n f subs r = bgroup n tests
   where
@@ -101,6 +106,9 @@ mkGroup n f subs r = bgroup n tests
 onTextGroup :: NFData a => String -> (F.YiString -> a) -> Benchmark
 onTextGroup n f = mkGroup n f allTexts benchOnText
 
+onCharGroup :: NFData a => String -> (Char -> a) -> Benchmark
+onCharGroup n f = mkGroup n f allChars benchOnText
+
 onIntGroup :: String -> (Int -> F.YiString -> F.YiString) -> Benchmark
 onIntGroup n f = mkGroup n f allTexts benchTakeDrop
 
@@ -109,10 +117,16 @@ onSplitGroup :: String
              -> Benchmark
 onSplitGroup n f = mkGroup n f allTexts benchSplitAt
 
+tdb = defaultMain [ onIntGroup "take" F.take
+                  , onIntGroup "drop" F.drop ]
+
 main :: IO ()
 main = defaultMain
   [ onIntGroup "drop" F.drop
   , onIntGroup "take" F.take
+  , onTextGroup "cons" (F.cons 'λ')
+  , onTextGroup "snoc" (`F.snoc` 'λ')
+  , onCharGroup "singleton" F.singleton
   , onTextGroup "countNewLines" F.countNewLines
   , onTextGroup "lines" F.lines
   , onSplitGroup "splitAt" F.splitAt

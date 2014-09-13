@@ -36,8 +36,10 @@ module Yi.Rope (
    Yi.Rope.null, Yi.Rope.empty, Yi.Rope.take, Yi.Rope.drop,
    Yi.Rope.length, Yi.Rope.reverse, Yi.Rope.countNewLines,
 
+   -- * Text manipulations
    Yi.Rope.lines, Yi.Rope.lines',
    Yi.Rope.splitAt, Yi.Rope.splitAtLine,
+   Yi.Rope.cons, Yi.Rope.snoc, Yi.Rope.singleton,
 
    Yi.Rope.head, Yi.Rope.last,
 
@@ -53,11 +55,12 @@ import           Control.DeepSeq
 import           Data.Binary
 import qualified Data.FingerTree as T
 import           Data.FingerTree hiding (null, empty, reverse, split)
-import qualified Data.List as L
+import qualified Data.List as L (foldl')
 import           Data.Monoid
 import           Data.String (IsString(..))
 import qualified Data.Text as TX
 import qualified Data.Text.IO as TF (writeFile, readFile)
+import           Prelude hiding (drop)
 
 -- | Used to cache the size of the strings.
 data Size = Indices { charIndex :: {-# UNPACK #-} !Int
@@ -284,6 +287,31 @@ take n = fst . Yi.Rope.splitAt n
 -- | Drops the first n characters.
 drop :: Int -> YiString -> YiString
 drop n = snd . Yi.Rope.splitAt n
+
+-- | Add a 'Char' in front of a 'YiString'.
+--
+-- We add the character to the front of the first chunk. This does
+-- mean that a lot of 'cons' might result in an abnormally large first
+-- chunk so if you have to do that, consider using 'append' instead..
+cons :: Char -> YiString -> YiString
+cons c (YiString t) = YiString $ case viewl t of
+  Chunk !l x :< ts -> Chunk (l + 1) (c `TX.cons` x) <| ts
+  EmptyL -> T.singleton $ Chunk 1 (TX.singleton c)
+
+-- | Add a 'Char' in the back of a 'YiString'.
+--
+-- We add the character to the end of the last chunk. This does mean
+-- that a lot of 'snoc' might result in an abnormally large last chunk
+-- so if you have to do that, consider using 'append' instead..
+snoc :: YiString -> Char -> YiString
+snoc (YiString t) c = YiString $ case viewr t of
+  ts :> Chunk l x -> ts |> Chunk (l + 1) (x `TX.snoc` c)
+  EmptyR -> T.singleton $ Chunk 1 (TX.singleton c)
+
+-- | Single character 'YiString'. Consider whether it's worth creating
+-- this, maybe you can use 'cons' or 'snoc' instead?
+singleton :: Char -> YiString
+singleton c = YiString . T.singleton $ Chunk 1 (TX.singleton c)
 
 -- | Splits the underlying string before the given line number.
 -- Zero-indexed lines.
