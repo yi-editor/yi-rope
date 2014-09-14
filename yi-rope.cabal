@@ -11,6 +11,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
+  ghc-options:      -fpedantic-bottoms -flate-dmd-anal -fexpose-all-unfoldings -Wall -O2
   exposed-modules:
     Yi.Rope
 
