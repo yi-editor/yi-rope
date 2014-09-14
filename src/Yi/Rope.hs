@@ -271,12 +271,12 @@ last (YiString t) = case viewr t of
 -- the underlying 'TX.Text'. It turns out to be fairly fast all
 -- together.
 splitAt :: Int -> YiString -> (YiString, YiString)
-splitAt n i@(YiString t) = case viewl s of
+splitAt n (YiString t) = case viewl s of
   Chunk l x :< ts | n' /= 0 ->
     let (lx, rx) = TX.splitAt n' x
     in (YiString $ f |> Chunk n' lx,
         YiString $ Chunk (l - n') rx -| ts)
-  _ -> (Yi.Rope.empty, i)
+  _ -> (YiString f, YiString s)
   where
     (f, s) = T.split ((> n) . charIndex) t
     n' = n - charIndex (measure f)
