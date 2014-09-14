@@ -47,7 +47,7 @@ module Yi.Rope (
    Yi.Rope.append, Yi.Rope.concat,
 
    -- * IO
-   Yi.Rope.readFile, Yi.Rope.writeFile
+   Yi.Rope.readFile, Yi.Rope.readFile', Yi.Rope.writeFile
 
   ) where
 
@@ -413,5 +413,23 @@ instance Binary YiString where
 writeFile :: FilePath -> YiString -> IO ()
 writeFile f = TF.writeFile f . toText
 
+-- | Reads file into the rope, using 'fromText'.
 readFile :: FilePath -> IO YiString
 readFile f = fromText <$> TF.readFile f
+
+-- | A version of 'readFile' which allows for arbitrary chunk size to
+-- start with.
+--
+-- For example, @readFile' foo ((/ 2) . 'TX.length')@ would produce
+-- chunks that are half the size of the read in text: whether that's a
+-- good idea depends on situation.
+--
+-- Note that if this number ends up as @< 1@, 'defaultChunkSize' will
+-- be used instead.
+readFile' :: FilePath -> (TX.Text -> Int) -> IO YiString
+readFile' f l = do
+  c <- TF.readFile f
+  let l' = case l c of
+        x | x < 1     -> defaultChunkSize
+          | otherwise -> x
+  return $ fromText' l' c
