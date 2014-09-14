@@ -5,7 +5,7 @@ module Main where
 import           Control.DeepSeq
 import           Criterion.Main
 import qualified Criterion.Main as C
-import           Data.Text (unlines, Text, replicate)
+import           Data.Text (unlines, Text, replicate, unpack)
 import           Prelude hiding (unlines)
 import qualified Yi.Rope as F
 
@@ -128,6 +128,7 @@ main = defaultMain
   , onTextGroup "lines" F.lines
   , onSplitGroup "splitAt" F.splitAt
   , onSplitGroup "splitAtLine" F.splitAtLine
+  , onTextGroup "toReverseString" F.toReverseString
   , onTextGroup "toReverseText" F.toReverseText
   , onTextGroup "toText" F.toText
   , onTextGroup "length" F.length

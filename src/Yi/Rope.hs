@@ -164,8 +164,12 @@ toString :: YiString -> String
 toString = TX.unpack . toText
 
 -- | See 'toReverseText'.
+--
+-- Note that it is actually ~4.5 times faster to use 'toReverseText'
+-- and unpack the result than to convert to 'String' and use
+-- 'Prelude.reverse'.
 toReverseString :: YiString -> String
-toReverseString = Prelude.reverse . toString
+toReverseString = TX.unpack . toReverseText
 
 -- | This is like 'fromText' but it allows the user to specify the
 -- chunk size to be used. Uses 'defaultChunkSize' if the given
