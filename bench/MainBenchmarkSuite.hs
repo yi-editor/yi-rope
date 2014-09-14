@@ -137,4 +137,8 @@ main = defaultMain
   , onTextGroup "empty" $ const F.empty
   , onTextGroup "append" (\x -> F.append x x)
   , onTextGroup "concat x100" $ F.concat . Prelude.replicate 100
+  , onTextGroup "any OK, (== '中')" $ F.any (== '中')
+  , onTextGroup "any bad, (== '×')" $ F.any (== '×')
+  , onTextGroup "all OK (/= '×')" $ F.all (== '×')
+  , onTextGroup "all bad, (== '中')" $ F.all (== '中')
   ]

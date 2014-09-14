@@ -55,3 +55,9 @@ spec = modifyMaxSize (const 1000) $ do
     prop "R.snoc ~ T.snoc" $ \c -> R.cons c `isLikeT` T.cons c
     prop "R.singleton ~ T.singleton" $
       \c -> (R.toText . R.singleton) c `shouldBe` T.singleton c
+    prop "\\p -> R.any p ~ T.any p $ const True" $ \t ->
+      R.any (const True) (R.fromText t) `shouldBe` T.any (const True) t
+    prop "\\p -> R.any p ~ T.any p $ const False" $ \t ->
+      R.any (const False) (R.fromText t) `shouldBe` T.any (const False) t
+    prop "\\f -> R.withText ~ f $ T.toTitle" $
+      R.withText T.toTitle `isLikeT` T.toTitle

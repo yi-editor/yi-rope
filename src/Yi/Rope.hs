@@ -33,21 +33,22 @@ module Yi.Rope (
    Yi.Rope.toString, Yi.Rope.toReverseString,
    Yi.Rope.toText, Yi.Rope.toReverseText,
 
-   -- * List-like functions
+   -- * Functions over content
    Yi.Rope.null, Yi.Rope.empty, Yi.Rope.take, Yi.Rope.drop,
    Yi.Rope.length, Yi.Rope.reverse, Yi.Rope.countNewLines,
-
-   -- * Text manipulations
    Yi.Rope.lines, Yi.Rope.lines',
    Yi.Rope.splitAt, Yi.Rope.splitAtLine,
    Yi.Rope.cons, Yi.Rope.snoc, Yi.Rope.singleton,
-
    Yi.Rope.head, Yi.Rope.last,
-
    Yi.Rope.append, Yi.Rope.concat,
+   Yi.Rope.any, Yi.Rope.all,
 
    -- * IO
-   Yi.Rope.readFile, Yi.Rope.readFile', Yi.Rope.writeFile
+   Yi.Rope.readFile, Yi.Rope.readFile', Yi.Rope.writeFile,
+
+   -- * Escape latches to underlying content. Note that these are safe
+   -- to use but it does not mean they should.
+   Yi.Rope.fromRope, Yi.Rope.withText
 
   ) where
 
@@ -404,16 +405,41 @@ lines' t = let (YiString f, YiString s) = splitAtLine' 0 t
               then if T.null f then [] else [YiString f]
               else YiString f : lines' (YiString s)
 
+-- | 'YiString' specialised @any@.
+--
+-- Implementation note: this currently just does any by doing ‘TX.Text’
+-- conversions upon consecutive chunks. We should be able to speed it
+-- up by running it in parallel over multiple chunks.
+any :: (Char -> Bool) -> YiString -> Bool
+any p = go . fromRope
+  where
+    go x = case viewl x of
+      EmptyL -> False
+      Chunk _ t :< ts -> TX.any p t || go ts
+
+-- | 'YiString' specialised @all@.
+--
+-- See the implementation note for 'Yi.Rope.any'.
+all :: (Char -> Bool) -> YiString -> Bool
+all p = go . fromRope
+  where
+    go x = case viewl x of
+      EmptyL -> False
+      Chunk _ t :< ts -> TX.all p t || go ts
+
 -- | To serialise a 'YiString', we turn it into a regular 'String'
 -- first.
 instance Binary YiString where
   put = put . toString
   get = Yi.Rope.fromString <$> get
 
+-- | Write a 'YiString' into the given file. It's up to the user to
+-- handle exceptions.
 writeFile :: FilePath -> YiString -> IO ()
 writeFile f = TF.writeFile f . toText
 
--- | Reads file into the rope, using 'fromText'.
+-- | Reads file into the rope, using 'fromText'. It's up to the user
+-- to handle exceptions.
 readFile :: FilePath -> IO YiString
 readFile f = fromText <$> TF.readFile f
 
@@ -426,6 +452,8 @@ readFile f = fromText <$> TF.readFile f
 --
 -- Note that if this number ends up as @< 1@, 'defaultChunkSize' will
 -- be used instead.
+--
+-- It's up to the user to handle exceptions.
 readFile' :: FilePath -> (TX.Text -> Int) -> IO YiString
 readFile' f l = do
   c <- TF.readFile f
@@ -433,3 +461,20 @@ readFile' f l = do
         x | x < 1     -> defaultChunkSize
           | otherwise -> x
   return $ fromText' l' c
+
+-- | Helper function doing conversions of to and from underlying
+-- 'TX.Text'. You should aim to implement everything in terms of
+-- 'YiString' instead.
+withText :: (TX.Text -> TX.Text) -> YiString -> YiString
+withText f = YiString . T.fmap' (mkChunk TX.length . f . _fromChunk) . fromRope
+
+-- | Maps over each __chunk__ which means this function is UNSAFE! If
+-- you use this with functions which don't preserve 'Size', that is
+-- the chunk length and number of newlines, things will break really,
+-- really badly. You should not need to use this.
+--
+-- Also see 'T.unsafeFmap'
+unsafeWithText :: (TX.Text -> TX.Text) -> YiString -> YiString
+unsafeWithText f = YiString . T.unsafeFmap g . fromRope
+  where
+    g (Chunk l t) = Chunk l (f t)
