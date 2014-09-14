@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE UnboxedTuples #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
@@ -266,15 +267,15 @@ last (YiString t) = case viewr t of
 --
 -- All together, this split is only as expensive as underlying
 -- 'T.split', the cost of splitting a chunk into two and the cost
--- consing and snocing one chunk to each string. As the chunks are
--- short, the split fairly cheap and cons/snoc constant time, this
--- turns out pretty fast all together.
+-- consing and snocing one chunk to each string over text which has a
+-- fast split, the finger tree split fairly cheap and cons/snoc
+-- constant time, this turns out pretty fast all together.
 splitAt :: Int -> YiString -> (YiString, YiString)
 splitAt n (YiString t) = case viewl s of
-  Chunk _ x :< ts | n' /= 0 ->
+  Chunk l x :< ts | n' /= 0 ->
     let (lx, rx) = TX.splitAt n' x
-    in (YiString $ f |> mkChunk TX.length lx,
-        YiString $ mkChunk TX.length rx -| ts)
+    in (YiString $ f |> Chunk n' lx,
+        YiString $ Chunk (l - n') rx -| ts)
   _ -> (YiString f, YiString s)
   where
     (f, s) = T.split ((> n) . charIndex) t
