@@ -266,10 +266,10 @@ last (YiString t) = case viewr t of
 -- chunk of the right side of the split. We do precisely that.
 --
 -- All together, this split is only as expensive as underlying
--- 'T.split', the cost of splitting a chunk into two and the cost
--- consing and snocing one chunk to each string over text which has a
--- fast split, the finger tree split fairly cheap and cons/snoc
--- constant time, this turns out pretty fast all together.
+-- 'T.split', the cost of splitting a chunk into two, the cost of one
+-- cons and one cons of a chunk and lastly the cost of 'T.splitAt' of
+-- the underlying 'TX.Text'. It turns out to be fairly fast all
+-- together.
 splitAt :: Int -> YiString -> (YiString, YiString)
 splitAt n (YiString t) = case viewl s of
   Chunk l x :< ts | n' /= 0 ->
