@@ -48,7 +48,7 @@ module Yi.Rope (
 
    -- * Escape latches to underlying content. Note that these are safe
    -- to use but it does not mean they should.
-   Yi.Rope.fromRope, Yi.Rope.withText
+   Yi.Rope.fromRope, Yi.Rope.withText, Yi.Rope.unsafeWithText
 
   ) where
 
