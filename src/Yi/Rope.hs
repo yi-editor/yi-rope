@@ -125,6 +125,9 @@ instance Monoid YiString where
   mappend = Yi.Rope.append
   mconcat = Yi.Rope.concat
 
+instance Ord YiString where
+  compare x y = toText x `compare` toText y
+
 (-|) :: YiChunk -> FingerTree Size YiChunk -> FingerTree Size YiChunk
 b -| t | chunkSize b == 0 = t
        | otherwise        = b <| t

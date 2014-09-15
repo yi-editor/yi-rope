@@ -66,3 +66,5 @@ spec = modifyMaxSize (const 1000) $ do
       R.dropWhile isUpper `isLikeT` T.dropWhile isUpper
     prop "\\p -> R.takeWhile p ~ T.takeWhile p $ isUpper" $
       R.takeWhile isUpper `isLikeT` T.takeWhile isUpper
+    prop "R.compare ~ T.compare" $ \t t' ->
+      compare (R.fromText t) (R.fromText t') `shouldBe` compare t t'
