@@ -465,6 +465,21 @@ readFile' f l = do
 -- | Helper function doing conversions of to and from underlying
 -- 'TX.Text'. You should aim to implement everything in terms of
 -- 'YiString' instead.
+--
+-- Please note that this maps over each __chunk__ so this can only be
+-- used with layout-agnostic functions. For example
+--
+-- >>> let t = 'fromString' "abc" <> 'fromString' "def"
+-- >>> 'toString' $ 'withText' 'TX.reverse' t
+-- "cbafed"
+--
+-- Probably doesn't do what you wanted, but 'TX.toUpper' would.
+-- Specifically, for any @f : 'TX.Text' → 'TX.Text'@, 'withText' will
+-- only do the ‘expected’ thing iff
+--
+-- @f x <> f y ≡ f (x <> y)@
+--
+-- which should look very familiar.
 withText :: (TX.Text -> TX.Text) -> YiString -> YiString
 withText f = YiString . T.fmap' (mkChunk TX.length . f . _fromChunk) . fromRope
 
