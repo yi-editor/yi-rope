@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Yi.RopeSpec (main, spec) where
 
+import           Data.Char (isUpper)
 import qualified Data.Text as T
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
@@ -61,3 +62,7 @@ spec = modifyMaxSize (const 1000) $ do
       R.any (const False) (R.fromText t) `shouldBe` T.any (const False) t
     prop "\\f -> R.withText ~ f $ T.toTitle" $
       R.withText T.toTitle `isLikeT` T.toTitle
+    prop "\\p -> R.dropWhile p ~ T.dropWhile p $ isUpper" $
+      R.dropWhile isUpper `isLikeT` T.dropWhile isUpper
+    prop "\\p -> R.takeWhile p ~ T.takeWhile p $ isUpper" $
+      R.takeWhile isUpper `isLikeT` T.takeWhile isUpper

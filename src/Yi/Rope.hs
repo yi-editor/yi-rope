@@ -42,6 +42,8 @@ module Yi.Rope (
    Yi.Rope.head, Yi.Rope.last,
    Yi.Rope.append, Yi.Rope.concat,
    Yi.Rope.any, Yi.Rope.all,
+   Yi.Rope.dropWhile, Yi.Rope.takeWhile,
+   Yi.Rope.intercalate, Yi.Rope.intersperse,
 
    -- * IO
    Yi.Rope.readFile, Yi.Rope.readFile', Yi.Rope.writeFile,
@@ -293,6 +295,84 @@ take n = fst . Yi.Rope.splitAt n
 -- | Drops the first n characters.
 drop :: Int -> YiString -> YiString
 drop n = snd . Yi.Rope.splitAt n
+
+-- | The usual 'Prelude.dropWhile' optimised for 'YiString's.
+dropWhile :: (Char -> Bool) -> YiString -> YiString
+dropWhile p = YiString . go . fromRope
+  where
+    go t = case viewl t of
+      EmptyL -> T.empty
+      Chunk l x :< ts ->
+        let r = TX.dropWhile p x
+            l' = TX.length r
+        in case compare l' l of
+          -- We dropped nothing so we must be done.
+          EQ -> t
+          -- We dropped something, if it was everything then drop from
+          -- next chunk.
+          LT | TX.null r -> go ts
+          -- It wasn't everything and we have left-overs, we must be done.
+             | otherwise -> Chunk l' r <| ts
+          -- We shouldn't really get here or it would mean that
+          -- dropping stuff resulted in more content than we had. This
+          -- can only happen if unsafe functions don't preserve the
+          -- chunk size and it goes out of sync with the text length.
+          -- Preserve this abomination, it may be useful for
+          -- debugging.
+          _ -> Chunk l' r -| ts
+
+-- | The usual 'Prelude.takeWhile' optimised for 'YiString's.
+takeWhile :: (Char -> Bool) -> YiString -> YiString
+takeWhile p = YiString . go . fromRope
+  where
+    go t = case viewl t of
+      EmptyL -> T.empty
+      Chunk l x :< ts ->
+        let r = TX.takeWhile p x
+            l' = TX.length r
+        in case compare l' l of
+          -- We took the whole chunk, keep taking more.
+          EQ -> Chunk l x <| go ts
+          -- We took some stuff but not everything so we're done.
+          -- Alternatively, we took more than the size chunk so
+          -- preserve this wonder. This should only ever happen if you
+          -- use unsafe functions and Chunk size goes out of sync with
+          -- actual text length.
+          _ -> Chunk l' r <| ts
+
+-- | Concatenates the list of 'YiString's after inserting the
+-- user-provided 'YiString' between the elements.
+--
+-- Empty 'YiString's are not ignored and will end up as strings of
+-- length 1. If you don't want this, it's up to you to pre-process the
+-- list. Just as with 'Yi.Rope.intersperse', it is up to the user to
+-- pre-process the list.
+intercalate :: YiString -> [YiString] -> YiString
+intercalate _ [] = mempty
+intercalate (YiString t') ts = YiString $ t' >< go ts
+  where
+    go []                = mempty
+    go (YiString t : ts) = t >< t' >< go ts
+
+-- | Intersperses the given character between the 'YiString's. This is
+-- useful when you have a bunch of strings you just want to separate
+-- something with, comma or a dash. Note that it only inserts the
+-- character between the elements.
+--
+-- What's more, the result is a single 'YiString'. You can easily
+-- achieve a version that blindly inserts elements to the back by
+-- mapping over the list instead of using this function.
+--
+-- You can think of it as a specialised version of
+-- 'Yi.Rope.intercalate'. Note that what this does __not__ do is
+-- intersperse characters into the underlying text, you should convert
+-- and use 'TX.intersperse' for that instead.
+intersperse :: Char -> [YiString] -> YiString
+intersperse _ [] = mempty
+intersperse c ts = go ts
+  where
+    go [] = mempty
+    go (t:ts) = t `snoc` c <> go ts
 
 -- | Add a 'Char' in front of a 'YiString'.
 --
