@@ -1,9 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE UnboxedTuples #-}
-{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
@@ -85,17 +81,6 @@ data YiChunk = Chunk { chunkSize :: {-# UNPACK #-} !Int
                      , _fromChunk :: {-# UNPACK #-} !TX.Text
                      } deriving (Show, Eq)
 
--- Right view for convenience.
-yr :: YiString -> ViewR (FingerTree Size) YiChunk
-yr (YiString (viewr -> EmptyR)) = EmptyR
-yr (YiString (viewr -> t :> c)) = t :> c
-
--- Left view for convencienc
-yl :: YiString -> ViewL (FingerTree Size) YiChunk
-yl (YiString (viewl -> EmptyL)) = EmptyL
-yl (YiString (viewl -> c :< t)) = c :< t
-
-
 -- | Makes a chunk from a given string. We allow for an arbitrary
 -- length function here to allow us to bypass the calculation with
 -- 'const' in case the length is known ahead of time. In most cases,
@@ -113,12 +98,15 @@ overChunk :: (TX.Text -> TX.Text) -- ^ Length-preserving content transformation.
           -> YiChunk -> YiChunk
 overChunk f (Chunk l t) = Chunk l (f t)
 
+countNl :: TX.Text -> Int
+countNl = TX.count (TX.pack "\n")
+
 instance Monoid Size where
   mempty = Indices 0 0
   Indices c l `mappend` Indices c' l' = Indices (c + c') (l + l')
 
 instance Measured Size YiChunk where
-  measure (Chunk l t) = Indices l (TX.count "\n" t)
+  measure (Chunk l t) = Indices l (countNl t)
 
 -- | A 'YiString' is a 'FingerTree' with cached column and line counts
 -- over chunks of 'TX.Text'.
@@ -268,13 +256,14 @@ concat = L.foldl' append empty
 -- | Take the first character of the underlying string if possible.
 head :: YiString -> Maybe Char
 head (YiString t) = case viewl t of
+  EmptyL -> Nothing
   Chunk _ x :< _ -> if TX.null x then Nothing else Just (TX.head x)
-  EmptyL          -> Nothing
 
 -- | Take the last character of the underlying string if possible.
 last :: YiString -> Maybe Char
-last (yr -> EmptyR) = Nothing
-last (yr -> _ :> Chunk _ x) = if TX.null x then Nothing else Just (TX.last x)
+last (YiString t) = case viewr t of
+  EmptyR -> Nothing
+  _ :> Chunk _ x -> if TX.null x then Nothing else Just (TX.last x)
 
 -- | Splits the string at given character position.
 --
@@ -378,14 +367,15 @@ takeWhile p = YiString . go . fromRope
 takeWhileEnd :: (Char -> Bool) -> YiString -> YiString
 takeWhileEnd p = YiString . go . fromRope
   where
-    go (viewr -> EmptyR) = T.empty
-    go (viewr -> ts :> Chunk l x) = case compare l' l of
-      EQ -> go ts |> Chunk l x
-      _ -> ts |> Chunk l' r
-      where
-        -- no TX.takeWhileEnd – https://github.com/bos/text/issues/89
-        r = TX.reverse . TX.takeWhile p . TX.reverse $ x
-        l' = TX.length r
+    go t = case viewr t of
+      EmptyR -> T.empty
+      ts :> Chunk l x -> case compare l' l of
+        EQ -> go ts |> Chunk l x
+        _ -> ts |> Chunk l' r
+        where
+          -- no TX.takeWhileEnd – https://github.com/bos/text/issues/89
+          r = TX.reverse . TX.takeWhile p . TX.reverse $ x
+          l' = TX.length r
 
 -- | Concatenates the list of 'YiString's after inserting the
 -- user-provided 'YiString' between the elements.
@@ -399,7 +389,7 @@ intercalate _ [] = mempty
 intercalate (YiString t') ts = YiString $ t' >< go ts
   where
     go []                = mempty
-    go (YiString t : ts) = t >< t' >< go ts
+    go (YiString t : ts') = t >< t' >< go ts'
 
 -- | Intersperses the given character between the 'YiString's. This is
 -- useful when you have a bunch of strings you just want to separate
@@ -419,7 +409,7 @@ intersperse _ [] = mempty
 intersperse c (t:ts) = t <> go ts
   where
     go [] = mempty
-    go (t:ts) = (c `cons` t) <> go ts
+    go (t':ts') = (c `cons` t') <> go ts'
 
 -- | Add a 'Char' in front of a 'YiString'.
 --
@@ -427,10 +417,9 @@ intersperse c (t:ts) = t <> go ts
 -- mean that a lot of 'cons' might result in an abnormally large first
 -- chunk so if you have to do that, consider using 'append' instead..
 cons :: Char -> YiString -> YiString
-cons c (YiString (viewl -> EmptyL)) = Yi.Rope.singleton c
-cons c (YiString t) = YiString $ case viewl t of
-  Chunk !l x :< ts -> Chunk (l + 1) (c `TX.cons` x) <| ts
-  EmptyL -> T.singleton $ Chunk 1 (TX.singleton c)
+cons c (YiString t) = case viewl t of
+  EmptyL -> Yi.Rope.singleton c
+  Chunk !l x :< ts -> YiString $ Chunk (l + 1) (c `TX.cons` x) <| ts
 
 -- | Add a 'Char' in the back of a 'YiString'.
 --
@@ -438,8 +427,9 @@ cons c (YiString t) = YiString $ case viewl t of
 -- that a lot of 'snoc' might result in an abnormally large last chunk
 -- so if you have to do that, consider using 'append' instead..
 snoc :: YiString -> Char -> YiString
-snoc (yr -> EmptyR) c = Yi.Rope.singleton c
-snoc (yr -> ts :> Chunk l x) c = YiString $ ts |> Chunk (l + 1) (x `TX.snoc` c)
+snoc (YiString t) c = case viewr t of
+  EmptyR -> Yi.Rope.singleton c
+  ts :> Chunk l x -> YiString $ ts |> Chunk (l + 1) (x `TX.snoc` c)
 
 -- | Single character 'YiString'. Consider whether it's worth creating
 -- this, maybe you can use 'cons' or 'snoc' instead?
@@ -480,7 +470,7 @@ splitAtLine' p (YiString tr) = case viewl s of
     cutExcess :: Int -> TX.Text -> (TX.Text, TX.Text)
     cutExcess n t = case TX.length t of
       0 -> (TX.empty, TX.empty)
-      _ -> let ns = TX.count "\n" t
+      _ -> let ns = countNl t
                ls = TX.lines t
                front = TX.unlines $ Prelude.take (ns - n) ls
                back = TX.drop (TX.length front) t
@@ -502,13 +492,14 @@ splitAtLine' p (YiString tr) = case viewl s of
 lines :: YiString -> [YiString]
 lines = Prelude.map dropNl . lines'
   where
-    dropNl (yr -> EmptyR) = Yi.Rope.empty
-    dropNl (yr -> ts :> ch@(Chunk l tx)) =
-      YiString $ ts |- if TX.null tx
-                       then ch
-                       else case TX.last tx of
-                         '\n' -> Chunk (l - 1) (TX.init tx)
-                         _ -> ch
+    dropNl (YiString t)  = case viewr t of
+      EmptyR -> Yi.Rope.empty
+      ts :> ch@(Chunk l tx) ->
+        YiString $ ts |- if TX.null tx
+                         then ch
+                         else case TX.last tx of
+                           '\n' -> Chunk (l - 1) (TX.init tx)
+                           _ -> ch
 
 -- | Splits the 'YiString' into a list of 'YiString' each containing a
 -- line.
@@ -546,8 +537,9 @@ unlines = Yi.Rope.intersperse '\n'
 any :: (Char -> Bool) -> YiString -> Bool
 any p = go . fromRope
   where
-    go (viewl -> EmptyL) = False
-    go (viewl -> Chunk _ t :< ts) = TX.any p t || go ts
+    go x = case viewl x of
+      EmptyL -> False
+      Chunk _ t :< ts -> TX.any p t || go ts
 
 -- | 'YiString' specialised @all@.
 --
@@ -555,8 +547,9 @@ any p = go . fromRope
 all :: (Char -> Bool) -> YiString -> Bool
 all p = go . fromRope
   where
-    go (viewl -> EmptyL) = False
-    go (viewl -> Chunk _ t :< ts) = TX.all p t || go ts
+    go x = case viewl x of
+      EmptyL -> False
+      Chunk _ t :< ts -> TX.all p t || go ts
 
 -- | To serialise a 'YiString', we turn it into a regular 'String'
 -- first.
@@ -600,15 +593,17 @@ readFile' f l = do
 filter :: (Char -> Bool) -> YiString -> YiString
 filter p = YiString . go . fromRope
   where
-    go (viewl -> EmptyL) = T.empty
-    go (viewl -> Chunk _ x :< ts) = mkChunk TX.length (TX.filter p x) -| go ts
+    go t = case viewl t of
+      EmptyL -> T.empty
+      Chunk _ x :< ts -> mkChunk TX.length (TX.filter p x) -| go ts
 
 -- | Maps the characters over the underlying string.
 map :: (Char -> Char) -> YiString -> YiString
 map f = YiString . go . fromRope
   where
-    go (viewl -> EmptyL) = T.empty
-    go (viewl -> Chunk l x :< ts) = Chunk l (TX.map f x) <| go ts
+    go t = case viewl t of
+      EmptyL -> T.empty
+      Chunk l x :< ts -> Chunk l (TX.map f x) <| go ts
 
 -- | Join given 'YiString's with a space. Empty lines will be filtered
 -- out first.
