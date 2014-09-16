@@ -372,10 +372,10 @@ intercalate (YiString t') ts = YiString $ t' >< go ts
 -- and use 'TX.intersperse' for that instead.
 intersperse :: Char -> [YiString] -> YiString
 intersperse _ [] = mempty
-intersperse c ts = go ts
+intersperse c (t:ts) = t <> go ts
   where
     go [] = mempty
-    go (t:ts) = t `snoc` c <> go ts
+    go (t:ts) = (c `cons` t) <> go ts
 
 -- | Add a 'Char' in front of a 'YiString'.
 --
