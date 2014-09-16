@@ -37,14 +37,18 @@ module Yi.Rope (
    -- * Functions over content
    Yi.Rope.null, Yi.Rope.empty, Yi.Rope.take, Yi.Rope.drop,
    Yi.Rope.length, Yi.Rope.reverse, Yi.Rope.countNewLines,
-   Yi.Rope.lines, Yi.Rope.lines',
+   Yi.Rope.lines, Yi.Rope.lines', Yi.Rope.unlines,
    Yi.Rope.splitAt, Yi.Rope.splitAtLine,
    Yi.Rope.cons, Yi.Rope.snoc, Yi.Rope.singleton,
    Yi.Rope.head, Yi.Rope.last,
    Yi.Rope.append, Yi.Rope.concat,
    Yi.Rope.any, Yi.Rope.all,
    Yi.Rope.dropWhile, Yi.Rope.takeWhile,
+   Yi.Rope.dropWhileEnd, Yi.Rope.takeWhileEnd,
    Yi.Rope.intercalate, Yi.Rope.intersperse,
+   Yi.Rope.filter, Yi.Rope.map,
+   Yi.Rope.words, Yi.Rope.unwords,
+   Yi.Rope.split,
 
    -- * IO
    Yi.Rope.readFile, Yi.Rope.readFile', Yi.Rope.writeFile,
@@ -58,6 +62,7 @@ module Yi.Rope (
 import           Control.Applicative ((<$>))
 import           Control.DeepSeq
 import           Data.Binary
+import           Data.Char (isSpace)
 import qualified Data.FingerTree as T
 import           Data.FingerTree hiding (null, empty, reverse, split)
 import qualified Data.List as L (foldl')
@@ -79,6 +84,17 @@ data Size = Indices { charIndex :: {-# UNPACK #-} !Int
 data YiChunk = Chunk { chunkSize :: {-# UNPACK #-} !Int
                      , _fromChunk :: {-# UNPACK #-} !TX.Text
                      } deriving (Show, Eq)
+
+-- Right view for convenience.
+yr :: YiString -> ViewR (FingerTree Size) YiChunk
+yr (YiString (viewr -> EmptyR)) = EmptyR
+yr (YiString (viewr -> t :> c)) = t :> c
+
+-- Left view for convencienc
+yl :: YiString -> ViewL (FingerTree Size) YiChunk
+yl (YiString (viewl -> EmptyL)) = EmptyL
+yl (YiString (viewl -> c :< t)) = c :< t
+
 
 -- | Makes a chunk from a given string. We allow for an arbitrary
 -- length function here to allow us to bypass the calculation with
@@ -324,6 +340,21 @@ dropWhile p = YiString . go . fromRope
           -- debugging.
           _ -> Chunk l' r -| ts
 
+-- | As 'Yi.Rope.dropWhile' but drops from the end instead.
+dropWhileEnd :: (Char -> Bool) -> YiString -> YiString
+dropWhileEnd p = YiString . go . fromRope
+  where
+    go t = case viewr t of
+      EmptyR -> T.empty
+      ts :> Chunk l x ->
+        let r = TX.dropWhileEnd p x
+            l' = TX.length r
+        in case compare l' l of
+          EQ -> t
+          LT | TX.null r -> go ts
+             | otherwise -> ts |> Chunk l' r
+          _ -> ts |- Chunk l' r
+
 -- | The usual 'Prelude.takeWhile' optimised for 'YiString's.
 takeWhile :: (Char -> Bool) -> YiString -> YiString
 takeWhile p = YiString . go . fromRope
@@ -342,6 +373,19 @@ takeWhile p = YiString . go . fromRope
           -- use unsafe functions and Chunk size goes out of sync with
           -- actual text length.
           _ -> Chunk l' r <| ts
+
+-- | Like 'Yi.Rope.takeWhile' but takes from the end instead.
+takeWhileEnd :: (Char -> Bool) -> YiString -> YiString
+takeWhileEnd p = YiString . go . fromRope
+  where
+    go (viewr -> EmptyR) = T.empty
+    go (viewr -> ts :> Chunk l x) = case compare l' l of
+      EQ -> go ts |> Chunk l x
+      _ -> ts |> Chunk l' r
+      where
+        -- no TX.takeWhileEnd – https://github.com/bos/text/issues/89
+        r = TX.reverse . TX.takeWhile p . TX.reverse $ x
+        l' = TX.length r
 
 -- | Concatenates the list of 'YiString's after inserting the
 -- user-provided 'YiString' between the elements.
@@ -383,6 +427,7 @@ intersperse c (t:ts) = t <> go ts
 -- mean that a lot of 'cons' might result in an abnormally large first
 -- chunk so if you have to do that, consider using 'append' instead..
 cons :: Char -> YiString -> YiString
+cons c (YiString (viewl -> EmptyL)) = Yi.Rope.singleton c
 cons c (YiString t) = YiString $ case viewl t of
   Chunk !l x :< ts -> Chunk (l + 1) (c `TX.cons` x) <| ts
   EmptyL -> T.singleton $ Chunk 1 (TX.singleton c)
@@ -455,7 +500,7 @@ splitAtLine' p (YiString tr) = case viewl s of
 -- result back together which was inconsistent with the rest of the
 -- interface which worked with number of newlines.
 lines :: YiString -> [YiString]
-lines = map dropNl . lines'
+lines = Prelude.map dropNl . lines'
   where
     dropNl (yr -> EmptyR) = Yi.Rope.empty
     dropNl (yr -> ts :> ch@(Chunk l tx)) =
@@ -485,6 +530,13 @@ lines' t = let (YiString f, YiString s) = splitAtLine' 0 t
            in if T.null s
               then if T.null f then [] else [YiString f]
               else YiString f : lines' (YiString s)
+
+-- | Joins up lines by a newline character. It does not leave a
+-- newline after the last line. If you want a more classical
+-- 'Prelude.unlines' behaviour, use 'Yi.Rope.map' along with
+-- 'Yi.Rope.snoc'.
+unlines :: [YiString] -> YiString
+unlines = Yi.Rope.intersperse '\n'
 
 -- | 'YiString' specialised @any@.
 --
@@ -540,6 +592,47 @@ readFile' f l = do
         x | x < 1     -> defaultChunkSize
           | otherwise -> x
   return $ fromText' l' c
+
+-- | Filters the characters from the underlying string.
+--
+-- >>> filter (/= 'a') "bac"
+-- "bc"
+filter :: (Char -> Bool) -> YiString -> YiString
+filter p = YiString . go . fromRope
+  where
+    go (viewl -> EmptyL) = T.empty
+    go (viewl -> Chunk _ x :< ts) = mkChunk TX.length (TX.filter p x) -| go ts
+
+-- | Maps the characters over the underlying string.
+map :: (Char -> Char) -> YiString -> YiString
+map f = YiString . go . fromRope
+  where
+    go (viewl -> EmptyL) = T.empty
+    go (viewl -> Chunk l x :< ts) = Chunk l (TX.map f x) <| go ts
+
+-- | Join given 'YiString's with a space. Empty lines will be filtered
+-- out first.
+unwords :: [YiString] -> YiString
+unwords = Yi.Rope.intersperse ' '
+
+-- | Splits the given 'YiString' into a list of words, where spaces
+-- are determined by 'isSpace'. No empty strings are in the result
+-- list.
+words :: YiString -> [YiString]
+words = Prelude.filter (not . Yi.Rope.null) . Yi.Rope.split isSpace
+
+-- | Splits the 'YiString' on characters matching the predicate, like
+-- 'TX.split'.
+--
+-- For splitting on newlines use 'Yi.Rope.lines' or 'Yi.Rope.lines''
+-- instead.
+--
+-- Implementation note: GHC actually makes this naive implementation
+-- about as fast and in cases with lots of splits, faster, as a
+-- hand-rolled version on chunks with appends which is quite amazing
+-- in itself.
+split :: (Char -> Bool) -> YiString -> [YiString]
+split p = fmap fromText . TX.split p . toText
 
 -- | Helper function doing conversions of to and from underlying
 -- 'TX.Text'. You should aim to implement everything in terms of

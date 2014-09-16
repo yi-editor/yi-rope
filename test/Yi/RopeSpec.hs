@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Yi.RopeSpec (main, spec) where
 
-import           Data.Char (isUpper)
+import           Control.Applicative
+import           Data.Char (isUpper, toUpper, isSpace)
 import qualified Data.Text as T
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
@@ -68,3 +69,18 @@ spec = modifyMaxSize (const 1000) $ do
       R.takeWhile isUpper `isLikeT` T.takeWhile isUpper
     prop "R.compare ~ T.compare" $ \t t' ->
       compare (R.fromText t) (R.fromText t') `shouldBe` compare t t'
+    prop "\\p -> R.filter p ~ T.filter p $ isUpper" $
+      R.filter isUpper `isLikeT` T.filter isUpper
+    prop "\\f -> R.map f ~ T.map f $ toUpper" $
+      R.map toUpper `isLikeT` T.map toUpper
+    prop "\\p -> R.dropWhileEnd p ~ T.dropWhileEnd p $ isSpace" $
+      R.dropWhileEnd isSpace `isLikeT` T.dropWhileEnd isSpace
+    prop "\\p -> R.takeWhileEnd p ~ rev . T.takeWhile p . rev $ isSpace" $
+      R.takeWhileEnd isSpace
+      `isLikeT` T.reverse . T.takeWhile isSpace . T.reverse
+    prop "R.words ~ T.words" $ \t ->
+      R.toText <$> R.words (R.fromText t) `shouldBe` T.words t
+    prop "R.unwords ~ T.unwords" $ \t ->
+      R.toText (R.unwords (R.fromText <$> t)) `shouldBe` T.unwords t
+    prop "\\p -> R.split p ~ T.split p $ isUpper" $ \t ->
+      R.toText <$> R.split isUpper (R.fromText t) `shouldBe` T.split isUpper t

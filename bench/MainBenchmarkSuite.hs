@@ -117,8 +117,24 @@ onSplitGroup :: String
              -> Benchmark
 onSplitGroup n f = mkGroup n f allTexts benchSplitAt
 
+
+splitBench :: [Benchmark]
+splitBench =
+  [ onTextGroup "split none" (F.split (== '×'))
+  , onTextGroup "split lots" (F.split (\x -> x == 'a' || x == 'o'))
+  , onTextGroup "split all" (F.split (const True))
+  ]
+
+wordsBench :: [Benchmark]
+wordsBench =
+  -- The replicate here inflates the benchmark like mad, should be
+  -- moved out.
+  [ onTextGroup "unwords" (\x -> F.unwords (Prelude.replicate 100 x))
+  , onTextGroup "words" F.words
+  ]
+
 main :: IO ()
-main = defaultMain
+main = defaultMain $
   [ onIntGroup "drop" F.drop
   , onIntGroup "take" F.take
   , onTextGroup "cons" (F.cons 'λ')
@@ -141,4 +157,5 @@ main = defaultMain
   , onTextGroup "any bad, (== '×')" $ F.any (== '×')
   , onTextGroup "all OK (/= '×')" $ F.all (== '×')
   , onTextGroup "all bad, (== '中')" $ F.all (== '中')
-  ]
+  ] ++ splitBench
+    ++ wordsBench
