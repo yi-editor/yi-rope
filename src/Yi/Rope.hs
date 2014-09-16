@@ -3,6 +3,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
@@ -256,9 +257,8 @@ head (YiString t) = case viewl t of
 
 -- | Take the last character of the underlying string if possible.
 last :: YiString -> Maybe Char
-last (YiString t) = case viewr t of
-  _ :> Chunk _ x -> if TX.null x then Nothing else Just (TX.last x)
-  EmptyR          -> Nothing
+last (yr -> EmptyR) = Nothing
+last (yr -> _ :> Chunk _ x) = if TX.null x then Nothing else Just (TX.last x)
 
 -- | Splits the string at given character position.
 --
@@ -393,9 +393,8 @@ cons c (YiString t) = YiString $ case viewl t of
 -- that a lot of 'snoc' might result in an abnormally large last chunk
 -- so if you have to do that, consider using 'append' instead..
 snoc :: YiString -> Char -> YiString
-snoc (YiString t) c = YiString $ case viewr t of
-  ts :> Chunk l x -> ts |> Chunk (l + 1) (x `TX.snoc` c)
-  EmptyR -> T.singleton $ Chunk 1 (TX.singleton c)
+snoc (yr -> EmptyR) c = Yi.Rope.singleton c
+snoc (yr -> ts :> Chunk l x) c = YiString $ ts |> Chunk (l + 1) (x `TX.snoc` c)
 
 -- | Single character 'YiString'. Consider whether it's worth creating
 -- this, maybe you can use 'cons' or 'snoc' instead?
@@ -458,14 +457,13 @@ splitAtLine' p (YiString tr) = case viewl s of
 lines :: YiString -> [YiString]
 lines = map dropNl . lines'
   where
-    dropNl (YiString t) = case viewr t of
-      ts :> ch@(Chunk l tx) ->
-        YiString $ ts |- if TX.null tx
-                         then ch
-                         else case TX.last tx of
-                           '\n' -> Chunk (l - 1) (TX.init tx)
-                           _ -> ch
-      EmptyR -> YiString T.empty
+    dropNl (yr -> EmptyR) = Yi.Rope.empty
+    dropNl (yr -> ts :> ch@(Chunk l tx)) =
+      YiString $ ts |- if TX.null tx
+                       then ch
+                       else case TX.last tx of
+                         '\n' -> Chunk (l - 1) (TX.init tx)
+                         _ -> ch
 
 -- | Splits the 'YiString' into a list of 'YiString' each containing a
 -- line.
@@ -496,9 +494,8 @@ lines' t = let (YiString f, YiString s) = splitAtLine' 0 t
 any :: (Char -> Bool) -> YiString -> Bool
 any p = go . fromRope
   where
-    go x = case viewl x of
-      EmptyL -> False
-      Chunk _ t :< ts -> TX.any p t || go ts
+    go (viewl -> EmptyL) = False
+    go (viewl -> Chunk _ t :< ts) = TX.any p t || go ts
 
 -- | 'YiString' specialised @all@.
 --
@@ -506,9 +503,8 @@ any p = go . fromRope
 all :: (Char -> Bool) -> YiString -> Bool
 all p = go . fromRope
   where
-    go x = case viewl x of
-      EmptyL -> False
-      Chunk _ t :< ts -> TX.all p t || go ts
+    go (viewl -> EmptyL) = False
+    go (viewl -> Chunk _ t :< ts) = TX.all p t || go ts
 
 -- | To serialise a 'YiString', we turn it into a regular 'String'
 -- first.
