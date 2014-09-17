@@ -111,7 +111,21 @@ instance Measured Size YiChunk where
 -- | A 'YiString' is a 'FingerTree' with cached column and line counts
 -- over chunks of 'TX.Text'.
 newtype YiString = YiString { fromRope :: FingerTree Size YiChunk }
-                 deriving (Show, Eq)
+                 deriving (Show)
+
+-- | Two 'YiString's are equal if their underlying text is.
+--
+-- Implementation note: This just uses 'TX.Text' equality as there is
+-- no real opportunity for optimisation here except for a cached
+-- length check first. We could unroll the trees and mess around with
+-- matching prefixes but the overhead would be higher than a simple
+-- conversion and relying on GHC optimisation.
+--
+-- The derived Eq implementation for the underlying tree only passes
+-- the equality check if the chunks are the same too which is not what
+-- we want.
+instance Eq YiString where
+  t == t' = Yi.Rope.length t == Yi.Rope.length t' && toText t == toText t'
 
 instance NFData Size where
   rnf (Indices !c !l) = c `seq` l `seq` ()
