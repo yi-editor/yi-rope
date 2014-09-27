@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+import           Data.Char (isSpace)
 import           Control.DeepSeq
 import           Criterion.Main
 import qualified Criterion.Main as C
@@ -133,6 +134,16 @@ wordsBench =
   , onTextGroup "words" F.words
   ]
 
+spanBreakBench :: [Benchmark]
+spanBreakBench =
+  [ onTextGroup "spanTrue" $ F.span (const True)
+  , onTextGroup "spanFalse" $ F.span (const False)
+  , onTextGroup "spanSpace" $ F.span isSpace
+  , onTextGroup "breakTrue" $ F.break (const True)
+  , onTextGroup "breakFalse" $ F.break (const False)
+  , onTextGroup "breakSpace" $ F.break isSpace
+  ]
+
 main :: IO ()
 main = defaultMain $
   [ onIntGroup "drop" F.drop
@@ -161,3 +172,4 @@ main = defaultMain $
   , onTextGroup "tail" F.tail
   ] ++ splitBench
     ++ wordsBench
+    ++ spanBreakBench

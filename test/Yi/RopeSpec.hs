@@ -90,3 +90,9 @@ spec = modifyMaxSize (const 1000) $ do
     prop "non-empty s ⊢ R.tail s ~ T.tail s" $ \t ->
       let t' = t `T.snoc` 'a'
       in (fmap R.toText . R.tail . R.fromText) t' `shouldBe` (Just . T.tail) t'
+    prop "\\p -> R.span p ~ T.span p $ isUpper" $ \t ->
+      let (f, s) `shouldBeT` y = (R.toText f, R.toText s) `shouldBe` y
+      in (R.span isUpper . R.fromText) t `shouldBeT` T.span isUpper t
+    prop "\\p -> R.break p ~ T.break p $ isUpper" $ \t ->
+      let (f, s) `shouldBeT` y = (R.toText f, R.toText s) `shouldBe` y
+      in (R.break isUpper . R.fromText) t `shouldBeT` T.break isUpper t

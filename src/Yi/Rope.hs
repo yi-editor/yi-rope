@@ -45,6 +45,7 @@ module Yi.Rope (
    Yi.Rope.filter, Yi.Rope.map,
    Yi.Rope.words, Yi.Rope.unwords,
    Yi.Rope.split, Yi.Rope.init, Yi.Rope.tail,
+   Yi.Rope.span, Yi.Rope.break,
 
    -- * IO
    Yi.Rope.readFile, Yi.Rope.readFile', Yi.Rope.writeFile,
@@ -408,6 +409,24 @@ takeWhileEnd p = YiString . go . fromRope
           -- no TX.takeWhileEnd – https://github.com/bos/text/issues/89
           r = TX.reverse . TX.takeWhile p . TX.reverse $ x
           l' = TX.length r
+
+
+-- | Returns a pair whose first element is the longest prefix
+-- (possibly empty) of t of elements that satisfy p, and whose second
+-- is the remainder of the string. See also 'TX.span'.
+--
+-- This implementation uses 'Yi.Rope.splitAt' which actually is just
+-- as fast as hand-unrolling the tree. GHC sure is great!
+span :: (Char -> Bool) -> YiString -> (YiString, YiString)
+span p y = let x = Yi.Rope.takeWhile p y
+           in case Yi.Rope.splitAt (Yi.Rope.length x) y of
+             -- Re-using ‘x’ seems to gain us a minor performance
+             -- boost.
+             (_, y') -> (x, y')
+
+-- | Just like 'Yi.Rope.span' but with the predicate negated.
+break :: (Char -> Bool) -> YiString -> (YiString, YiString)
+break p = Yi.Rope.span (not . p)
 
 -- | Concatenates the list of 'YiString's after inserting the
 -- user-provided 'YiString' between the elements.
