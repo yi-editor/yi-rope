@@ -5,7 +5,7 @@ module Main where
 import           Control.DeepSeq
 import           Criterion.Main
 import qualified Criterion.Main as C
-import           Data.Text (unlines, Text, replicate, unpack)
+import           Data.Text (unlines, Text, replicate)
 import           Prelude hiding (unlines)
 import qualified Yi.Rope as F
 
@@ -157,5 +157,7 @@ main = defaultMain $
   , onTextGroup "any bad, (== '×')" $ F.any (== '×')
   , onTextGroup "all OK (/= '×')" $ F.all (== '×')
   , onTextGroup "all bad, (== '中')" $ F.all (== '中')
+  , onTextGroup "init" F.init
+  , onTextGroup "tail" F.tail
   ] ++ splitBench
     ++ wordsBench

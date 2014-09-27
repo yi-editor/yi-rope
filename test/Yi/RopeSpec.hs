@@ -84,3 +84,9 @@ spec = modifyMaxSize (const 1000) $ do
       R.toText (R.unwords (R.fromText <$> t)) `shouldBe` T.unwords t
     prop "\\p -> R.split p ~ T.split p $ isUpper" $ \t ->
       R.toText <$> R.split isUpper (R.fromText t) `shouldBe` T.split isUpper t
+    prop "non-empty s ⊢ R.init s ~ T.init s" $ \t ->
+      let t' = t `T.snoc` 'a' -- ensure non-empty
+      in (fmap R.toText . R.init . R.fromText) t' `shouldBe` (Just . T.init) t'
+    prop "non-empty s ⊢ R.tail s ~ T.tail s" $ \t ->
+      let t' = t `T.snoc` 'a'
+      in (fmap R.toText . R.tail . R.fromText) t' `shouldBe` (Just . T.tail) t'

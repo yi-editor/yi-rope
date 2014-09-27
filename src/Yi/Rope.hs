@@ -44,7 +44,7 @@ module Yi.Rope (
    Yi.Rope.intercalate, Yi.Rope.intersperse,
    Yi.Rope.filter, Yi.Rope.map,
    Yi.Rope.words, Yi.Rope.unwords,
-   Yi.Rope.split,
+   Yi.Rope.split, Yi.Rope.init, Yi.Rope.tail,
 
    -- * IO
    Yi.Rope.readFile, Yi.Rope.readFile', Yi.Rope.writeFile,
@@ -278,6 +278,22 @@ last :: YiString -> Maybe Char
 last (YiString t) = case viewr t of
   EmptyR -> Nothing
   _ :> Chunk _ x -> if TX.null x then Nothing else Just (TX.last x)
+
+-- | Takes every character but the last one: returns Nothing on empty
+-- string.
+init :: YiString -> Maybe YiString
+init (YiString t) = case viewr t of
+  EmptyR -> Nothing
+  ts :> Chunk 0 _ -> Yi.Rope.init (YiString ts)
+  ts :> Chunk l x -> Just . YiString $ ts |- Chunk (l - 1) (TX.init x)
+
+-- | Takes the tail of the underlying string. If the string is empty
+-- to begin with, returns Nothing.
+tail :: YiString -> Maybe YiString
+tail (YiString t) = case viewr t of
+  EmptyR -> Nothing
+  ts :> Chunk 0 _ -> Yi.Rope.tail (YiString ts)
+  ts :> Chunk l x -> Just . YiString $ ts |- Chunk (l - 1) (TX.tail x)
 
 -- | Splits the string at given character position.
 --
