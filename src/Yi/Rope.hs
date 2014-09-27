@@ -343,6 +343,7 @@ dropWhile p = YiString . go . fromRope
   where
     go t = case viewl t of
       EmptyL -> T.empty
+      Chunk 0 _ :< ts -> go ts
       Chunk l x :< ts ->
         let r = TX.dropWhile p x
             l' = TX.length r
@@ -368,6 +369,7 @@ dropWhileEnd p = YiString . go . fromRope
   where
     go t = case viewr t of
       EmptyR -> T.empty
+      ts :> Chunk 0 _ -> go ts
       ts :> Chunk l x ->
         let r = TX.dropWhileEnd p x
             l' = TX.length r
@@ -383,18 +385,19 @@ takeWhile p = YiString . go . fromRope
   where
     go t = case viewl t of
       EmptyL -> T.empty
+      Chunk 0 _ :< ts -> go ts
       Chunk l x :< ts ->
         let r = TX.takeWhile p x
             l' = TX.length r
         in case compare l' l of
           -- We took the whole chunk, keep taking more.
-          EQ -> Chunk l x <| go ts
+          EQ -> Chunk l x -| go ts
           -- We took some stuff but not everything so we're done.
           -- Alternatively, we took more than the size chunk so
           -- preserve this wonder. This should only ever happen if you
           -- use unsafe functions and Chunk size goes out of sync with
           -- actual text length.
-          _ -> Chunk l' r <| ts
+          _ -> T.singleton $ Chunk l' r
 
 -- | Like 'Yi.Rope.takeWhile' but takes from the end instead.
 takeWhileEnd :: (Char -> Bool) -> YiString -> YiString
@@ -402,9 +405,10 @@ takeWhileEnd p = YiString . go . fromRope
   where
     go t = case viewr t of
       EmptyR -> T.empty
+      ts :> Chunk 0 _ -> go ts
       ts :> Chunk l x -> case compare l' l of
         EQ -> go ts |> Chunk l x
-        _ -> ts |> Chunk l' r
+        _ -> T.singleton $ Chunk l' r
         where
           -- no TX.takeWhileEnd – https://github.com/bos/text/issues/89
           r = TX.reverse . TX.takeWhile p . TX.reverse $ x
