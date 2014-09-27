@@ -96,3 +96,6 @@ spec = modifyMaxSize (const 1000) $ do
     prop "\\p -> R.break p ~ T.break p $ isUpper" $ \t ->
       let (f, s) `shouldBeT` y = (R.toText f, R.toText s) `shouldBe` y
       in (R.break isUpper . R.fromText) t `shouldBeT` T.break isUpper t
+    prop "\\p -> R.foldl' p ~ T.foldl' p $ \\x _ -> x + 1" $ \t ->
+      let f x _ = x + (1 :: Integer)
+      in (R.foldl' f 0 . R.fromText) t `shouldBe` T.foldl' f 0 t

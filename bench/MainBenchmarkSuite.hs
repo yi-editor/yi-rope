@@ -144,6 +144,13 @@ spanBreakBench =
   , onTextGroup "breakSpace" $ F.break isSpace
   ]
 
+foldBench :: [Benchmark]
+foldBench =
+  [ onTextGroup "foldCount" $ F.foldl' (\x _ -> x + 1) (0 :: Integer)
+  , onTextGroup "foldId" $ F.foldl' F.snoc F.empty
+  , onTextGroup "foldReverse" $ F.foldl' (\x y -> F.cons y x) F.empty
+  ]
+
 main :: IO ()
 main = defaultMain $
   [ onIntGroup "drop" F.drop
@@ -173,3 +180,4 @@ main = defaultMain $
   ] ++ splitBench
     ++ wordsBench
     ++ spanBreakBench
+    ++ foldBench

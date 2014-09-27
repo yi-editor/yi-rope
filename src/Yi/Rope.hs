@@ -45,7 +45,7 @@ module Yi.Rope (
    Yi.Rope.filter, Yi.Rope.map,
    Yi.Rope.words, Yi.Rope.unwords,
    Yi.Rope.split, Yi.Rope.init, Yi.Rope.tail,
-   Yi.Rope.span, Yi.Rope.break,
+   Yi.Rope.span, Yi.Rope.break, Yi.Rope.foldl',
 
    -- * IO
    Yi.Rope.readFile, Yi.Rope.readFile', Yi.Rope.writeFile,
@@ -679,6 +679,18 @@ words = Prelude.filter (not . Yi.Rope.null) . Yi.Rope.split isSpace
 -- in itself.
 split :: (Char -> Bool) -> YiString -> [YiString]
 split p = fmap fromText . TX.split p . toText
+
+-- | Left fold.
+--
+-- Benchmarks show that folding is actually Pretty Damn Slow™: consider
+-- whether folding is really the best thing to use in your scenario.
+foldl' :: (a -> Char -> a) -> a -> YiString -> a
+foldl' f a = go a . fromRope
+  where
+    go acc t = case viewl t of
+      EmptyL -> acc
+      Chunk _ x :< ts -> let r = TX.foldl' f acc x
+                         in r `seq` go r ts
 
 -- | Helper function doing conversions of to and from underlying
 -- 'TX.Text'. You should aim to implement everything in terms of
