@@ -46,6 +46,7 @@ module Yi.Rope (
    Yi.Rope.words, Yi.Rope.unwords,
    Yi.Rope.split, Yi.Rope.init, Yi.Rope.tail,
    Yi.Rope.span, Yi.Rope.break, Yi.Rope.foldl',
+   Yi.Rope.replicate, Yi.Rope.replicateChar,
 
    -- * IO
    Yi.Rope.readFile, Yi.Rope.readFile', Yi.Rope.writeFile,
@@ -695,6 +696,20 @@ foldl' f a = go a . fromRope
       EmptyL -> acc
       Chunk _ x :< ts -> let r = TX.foldl' f acc x
                          in r `seq` go r ts
+
+-- | Replicate the given YiString set number of times, concatenating
+-- the results. Also see 'Yi.Rope.replicateChar'.
+replicate :: Int -> YiString -> YiString
+replicate n t | n <= 0 = mempty
+              | otherwise = t <> Yi.Rope.replicate (n - 1) t
+
+-- | Replicate the given character set number of times and pack the
+-- result into a 'YiString'.
+--
+-- >>> replicateChar 4 ' '
+-- "    "
+replicateChar :: Int -> Char -> YiString
+replicateChar n = fromText . TX.replicate n . TX.singleton
 
 -- | Helper function doing conversions of to and from underlying
 -- 'TX.Text'. You should aim to implement everything in terms of

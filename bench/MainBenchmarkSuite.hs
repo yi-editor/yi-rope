@@ -177,6 +177,7 @@ main = defaultMain $
   , onTextGroup "all bad, (== '中')" $ F.all (== '中')
   , onTextGroup "init" F.init
   , onTextGroup "tail" F.tail
+  , onTextGroup "replicate 50" (F.replicate 50)
   ] ++ splitBench
     ++ wordsBench
     ++ spanBreakBench
