@@ -292,10 +292,10 @@ init (YiString t) = case viewr t of
 -- | Takes the tail of the underlying string. If the string is empty
 -- to begin with, returns Nothing.
 tail :: YiString -> Maybe YiString
-tail (YiString t) = case viewr t of
-  EmptyR -> Nothing
-  ts :> Chunk 0 _ -> Yi.Rope.tail (YiString ts)
-  ts :> Chunk l x -> Just . YiString $ ts |- Chunk (l - 1) (TX.tail x)
+tail (YiString t) = case viewl t of
+  EmptyL -> Nothing
+  Chunk 0 _ :< ts -> Yi.Rope.tail (YiString ts)
+  Chunk l x :< ts -> Just . YiString $ Chunk (l - 1) (TX.tail x) -| ts
 
 -- | Splits the string at given character position.
 --
