@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
 
@@ -68,6 +69,7 @@ import           Data.Monoid
 import           Data.String (IsString(..))
 import qualified Data.Text as TX
 import qualified Data.Text.IO as TF (writeFile, readFile)
+import           Data.Typeable
 import           Prelude hiding (drop)
 
 -- | Used to cache the size of the strings.
@@ -75,13 +77,13 @@ data Size = Indices { charIndex :: {-# UNPACK #-} !Int
                       -- ^ How many characters under here?
                     , lineIndex :: Int
                       -- ^ How many lines under here?
-                    } deriving (Eq, Show)
+                    } deriving (Eq, Show, Typeable)
 
 -- | A chunk storing the string of the type it is indexed by. It
 -- caches the length of stored string.
 data YiChunk = Chunk { chunkSize :: {-# UNPACK #-} !Int
                      , _fromChunk :: {-# UNPACK #-} !TX.Text
-                     } deriving (Show, Eq)
+                     } deriving (Show, Eq, Typeable)
 
 -- | Makes a chunk from a given string. We allow for an arbitrary
 -- length function here to allow us to bypass the calculation with
@@ -113,7 +115,7 @@ instance Measured Size YiChunk where
 -- | A 'YiString' is a 'FingerTree' with cached column and line counts
 -- over chunks of 'TX.Text'.
 newtype YiString = YiString { fromRope :: FingerTree Size YiChunk }
-                 deriving (Show)
+                 deriving (Show, Typeable)
 
 -- | Two 'YiString's are equal if their underlying text is.
 --
