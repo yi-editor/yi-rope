@@ -2,7 +2,7 @@ name:                yi-rope
 version:             0.4.0.0
 synopsis:            A rope data structure used by Yi
 description:         A rope data structure used by Yi
-license:             GPL-3
+license:             GPL-2
 license-file:        LICENSE
 author:              Mateusz Kowalczyk
 maintainer:          fuuzetsu@fuuzetsu.co.uk
