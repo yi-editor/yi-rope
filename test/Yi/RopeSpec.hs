@@ -101,3 +101,6 @@ spec = modifyMaxSize (const 1000) $ do
       in (R.foldl' f 0 . R.fromText) t `shouldBe` T.foldl' f 0 t
     prop "R.replicate ~ T.replicate" $ \n ->
       R.replicate n `isLikeT` T.replicate n
+    prop "R.intercalate ~ T.intercalate" $ \t ts ->
+      R.toText (R.intercalate (R.fromText t) (R.fromText <$> ts))
+      `shouldBe` T.intercalate t ts
