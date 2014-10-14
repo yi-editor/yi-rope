@@ -62,9 +62,11 @@ import           Control.Applicative ((<$>))
 import           Control.DeepSeq
 import           Data.Binary
 import           Data.Char (isSpace)
+import           Data.Default
 import qualified Data.FingerTree as T
 import           Data.FingerTree hiding (null, empty, reverse, split)
 import qualified Data.List as L (foldl')
+import           Data.Maybe
 import           Data.Monoid
 import           Data.String (IsString(..))
 import qualified Data.Text as TX
@@ -150,6 +152,9 @@ instance Monoid YiString where
 
 instance Ord YiString where
   compare x y = toText x `compare` toText y
+
+instance Default YiString where
+  def = mempty
 
 (-|) :: YiChunk -> FingerTree Size YiChunk -> FingerTree Size YiChunk
 b -| t | chunkSize b == 0 = t
@@ -264,8 +269,24 @@ countNewLines :: YiString -> Int
 countNewLines = lineIndex . measure . fromRope
 
 -- | Append two 'YiString's.
+--
+-- We take the extra time to optimise this append for many small
+-- insertions. With naive append of the inner fingertree with 'T.><',
+-- it is often the case that we end up with a large collection of tiny
+-- chunks. This function instead tries to join the underlying trees at
+-- outermost chunks up to 'defaultChunkSize' which while slower,
+-- should improve memory usage.
+--
+-- I suspect that this pays for itself as we'd spend more time
+-- computing over all the little chunks than few large ones anyway.
 append :: YiString -> YiString -> YiString
-append (YiString t) (YiString t') = YiString $ t T.>< t'
+append (YiString t) (YiString t') = case (viewr t, viewl t') of
+  (EmptyR, _) -> YiString t'
+  (_, EmptyL) -> YiString t
+  (ts :> Chunk l x, Chunk l' x' :< ts') ->
+    let len = l + l' in case compare len defaultChunkSize of
+      GT -> YiString (t <> t')
+      _ -> YiString (ts |- Chunk len (x <> x') <> ts')
 
 -- | Concat a list of 'YiString's.
 concat :: [YiString] -> YiString
@@ -334,10 +355,12 @@ splitAt n (YiString t)
 
 -- | Takes the first n given characters.
 take :: Int -> YiString -> YiString
+take 1 = maybe def Yi.Rope.singleton . Yi.Rope.head
 take n = fst . Yi.Rope.splitAt n
 
 -- | Drops the first n characters.
 drop :: Int -> YiString -> YiString
+drop 1 = fromMaybe def . Yi.Rope.tail
 drop n = snd . Yi.Rope.splitAt n
 
 -- | The usual 'Prelude.dropWhile' optimised for 'YiString's.
