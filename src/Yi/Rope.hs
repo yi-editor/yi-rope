@@ -50,7 +50,7 @@ module Yi.Rope (
    Yi.Rope.replicate, Yi.Rope.replicateChar,
 
    -- * IO
-   ConverterName, Yi.Rope.readFile, Yi.Rope.writeFile,
+   ConverterName, unCn, Yi.Rope.readFile, Yi.Rope.writeFile,
    Yi.Rope.writeFileUsingText, Yi.Rope.writeFileWithConverter,
 
    -- * Escape latches to underlying content. Note that these are safe
@@ -649,6 +649,10 @@ instance Binary YiString where
 -- text. It is mostly here due to the lack of 'Binary' instance for
 -- 'Converter' itself.
 newtype ConverterName = CN String deriving (Show, Eq, Ord, Read, Typeable)
+
+-- | Returns the underlying string.
+unCn :: ConverterName -> String
+unCn (CN s) = s
 
 -- | Simply 'put's/'get's the underlying 'String'.
 instance Binary ConverterName where
