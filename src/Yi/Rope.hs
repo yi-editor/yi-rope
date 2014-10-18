@@ -50,7 +50,8 @@ module Yi.Rope (
    Yi.Rope.replicate, Yi.Rope.replicateChar,
 
    -- * IO
-   Yi.Rope.readFile, Yi.Rope.readFile', Yi.Rope.writeFile,
+   ConverterName, Yi.Rope.readFile, Yi.Rope.writeFile,
+   Yi.Rope.writeFileUsingText, Yi.Rope.writeFileWithConverter,
 
    -- * Escape latches to underlying content. Note that these are safe
    -- to use but it does not mean they should.
@@ -58,10 +59,13 @@ module Yi.Rope (
 
   ) where
 
+import           Codec.Text.Detect (detectEncodingName)
 import           Control.Applicative ((<$>))
 import           Control.DeepSeq
 import           Data.Binary
-import           Data.Char (isSpace)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
+import           Data.Char (isSpace, toLower)
 import           Data.Default
 import qualified Data.FingerTree as T
 import           Data.FingerTree hiding (null, empty, reverse, split)
@@ -70,7 +74,8 @@ import           Data.Maybe
 import           Data.Monoid
 import           Data.String (IsString(..))
 import qualified Data.Text as TX
-import qualified Data.Text.IO as TF (writeFile, readFile)
+import           Data.Text.ICU.Convert
+import qualified Data.Text.IO as TF (writeFile)
 import           Data.Typeable
 import           Prelude hiding (drop)
 
@@ -104,6 +109,7 @@ overChunk :: (TX.Text -> TX.Text) -- ^ Length-preserving content transformation.
           -> YiChunk -> YiChunk
 overChunk f (Chunk l t) = Chunk l (f t)
 
+-- | Counts number of newlines in the given 'TX.Text'.
 countNl :: TX.Text -> Int
 countNl = TX.count (TX.pack "\n")
 
@@ -638,34 +644,72 @@ instance Binary YiString where
   put = put . toString
   get = Yi.Rope.fromString <$> get
 
--- | Write a 'YiString' into the given file. It's up to the user to
--- handle exceptions.
-writeFile :: FilePath -> YiString -> IO ()
-writeFile f = TF.writeFile f . toText
+-- | 'ConverterName' is used to convey information about the
+-- underlying 'Converter' used within the buffer to encode and decode
+-- text. It is mostly here due to the lack of 'Binary' instance for
+-- 'Converter' itself.
+newtype ConverterName = CN String deriving (Show, Eq, Ord, Read, Typeable)
 
--- | Reads file into the rope, using 'fromText'. It's up to the user
--- to handle exceptions.
-readFile :: FilePath -> IO YiString
-readFile f = fromText <$> TF.readFile f
+-- | Simply 'put's/'get's the underlying 'String'.
+instance Binary ConverterName where
+  put (CN s) = put s
+  get = CN <$> get
 
--- | A version of 'readFile' which allows for arbitrary chunk size to
--- start with.
+-- | Writes the given 'YiString' to the given file, according to the
+-- 'Converter' specified by 'ConverterName'. You can obtain a
+-- 'ConverterName' through 'readFile'. If you have a 'Converter', use
+-- 'writeFileWithConverter' instead.
 --
--- For example, @readFile' foo ((/ 2) . 'TX.length')@ would produce
--- chunks that are half the size of the read in text: whether that's a
--- good idea depends on situation.
---
--- Note that if this number ends up as @< 1@, 'defaultChunkSize' will
--- be used instead.
+-- If you don't care about the encoding used such as when creating a
+-- brand new file, you can use 'writeFileUsingText'.
 --
 -- It's up to the user to handle exceptions.
-readFile' :: FilePath -> (TX.Text -> Int) -> IO YiString
-readFile' f l = do
-  c <- TF.readFile f
-  let l' = case l c of
-        x | x < 1     -> defaultChunkSize
-          | otherwise -> x
-  return $ fromText' l' c
+writeFile :: FilePath -> YiString -> ConverterName -> IO ()
+writeFile f s (CN cn) = open cn (Just True) >>= writeFileWithConverter f s
+
+-- | As 'writeFile' but using the provided 'Converter' rather than
+-- creating one from a 'ConverterName'.
+--
+-- It's up to the user to handle exceptions.
+writeFileWithConverter :: FilePath -> YiString -> Converter -> IO ()
+writeFileWithConverter f s c = BS.writeFile f (fromUnicode c $ toText s)
+
+-- | Write a 'YiString' into the given file. This function uses
+-- 'TF.writeFile' to do the writing: if you have special needs for
+-- preserving encoding/decoding, use 'writeFile' instead.
+--
+-- It's up to the user to handle exceptions.
+writeFileUsingText :: FilePath -> YiString -> IO ()
+writeFileUsingText f = TF.writeFile f . toText
+
+
+-- | Reads file into the rope, also returning the 'ConverterName' that
+-- was used for decoding. You should resupply this to 'writeFile' if
+-- you're aiming to preserve the original encoding.
+--
+-- If we fail to guess the encoding used, error message is given
+-- instead.
+--
+-- It is up to the user to handle exceptions not directly related to
+-- character decoding.
+readFile :: FilePath -> IO (Either TX.Text (YiString, ConverterName))
+readFile fp = do
+  cs <- BSL.readFile fp
+  case detectEncodingName cs of
+   Nothing -> return . Left . TX.pack $ "Could not guess the encoding of " <> fp
+   Just enc -> do
+     let downcase = Prelude.map toLower
+         ke = if enc == "ASCII"
+              then Just "UTF-8"
+              else if downcase enc `elem` Prelude.map downcase converterNames
+                   then Just enc else Nothing
+     case ke of
+      Nothing -> return . Left . TX.pack $
+                   "Don't know how to decode as " <> enc
+      Just s -> do
+        c <- open s (Just True)
+        let st = BSL.toStrict cs
+        return $ Right (fromText . toUnicode c $ st, CN $ getName c)
 
 -- | Filters the characters from the underlying string.
 --
