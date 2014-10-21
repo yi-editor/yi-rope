@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
@@ -60,15 +59,14 @@ module Yi.Rope (
 
   ) where
 
-#if __GLASGOW_HASKELL__ > 706
+
 import           Codec.Text.Detect (detectEncodingName)
-#endif
 import           Control.Applicative ((<$>))
 import           Control.DeepSeq
 import           Data.Binary
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
-import           Data.Char (isSpace, toLower)
+import           Data.Char (isSpace)
 import           Data.Default
 import qualified Data.FingerTree as T
 import           Data.FingerTree hiding (null, empty, reverse, split)
@@ -77,9 +75,6 @@ import           Data.Maybe
 import           Data.Monoid
 import           Data.String (IsString(..))
 import qualified Data.Text as TX
-#if __GLASGOW_HASKELL__ < 708
-import qualified Data.Text.Encoding as TE
-#endif
 import           Data.Text.ICU.Convert
 import qualified Data.Text.IO as TF (writeFile)
 import           Data.Typeable
@@ -704,29 +699,18 @@ writeFileUsingText f = TF.writeFile f . toText
 -- character decoding.
 readFile :: FilePath -> IO (Either TX.Text (YiString, ConverterName))
 readFile fp = do
-#if __GLASGOW_HASKELL__ > 706
   cs <- BSL.readFile fp
   case detectEncodingName cs of
    Nothing -> return . Left . TX.pack $ "Could not guess the encoding of " <> fp
    Just enc -> do
-     let downcase = Prelude.map toLower
-         ke = if enc == "ASCII"
-              then Just "UTF-8"
-              else if downcase enc `elem` Prelude.map downcase converterNames
-                   then Just enc else Nothing
+     let ke = if enc == "ASCII" then Just "UTF-8" else listToMaybe $ aliases enc
      case ke of
       Nothing -> return . Left . TX.pack $
                    "Don't know how to decode as " <> enc
       Just s -> do
         c <- open s (Just True)
         let st = BSL.toStrict cs
-        return $ Right (fromText . toUnicode c $ st, CN $ getName c)
-#else
-  cs <- BS.readFile fp
-  case TE.decodeUtf8' cs of
-    Left e -> return . Left . TX.pack $ show e
-    Right t -> return $ Right (fromText t, CN "UTF-8")
-#endif
+        return $ Right (fromText $ toUnicode c st, CN $ getName c)
 
 -- | Filters the characters from the underlying string.
 --
