@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
@@ -76,6 +76,7 @@ import           Data.Maybe
 import           Data.Monoid
 import           Data.String (IsString(..))
 import qualified Data.Text as TX
+import qualified Data.Text.Encoding as TXE
 import           Data.Text.ICU.Convert
 import qualified Data.Text.IO as TF (writeFile)
 import           Data.Typeable
@@ -722,15 +723,18 @@ readFile fp = BSL.readFile fp >>= detectEncoding err
 -- Also allows specification of the error to return if the encoding
 -- of the bytes cannot be detected. The error returns won't necessarily
 -- be this error - it is used only if no encoding name is detected at all.
-detectEncoding :: TX.Text -> BSL.ByteString -> IO (Either TX.Text (YiString, ConverterName))
+detectEncoding :: TX.Text -> BSL.ByteString
+               -> IO (Either TX.Text (YiString, ConverterName))
 detectEncoding err cs =
   case detectEncodingName cs of
-   Nothing -> return . Left $ err
+   Nothing -> return $ case TXE.decodeUtf8' $ BSL.toStrict cs of
+      -- The detection failed but stay optimistic and try as UTF8 anyway.
+     Left _ -> Left err
+     Right tx -> Right (fromText tx, CN "UTF-8")
    Just enc -> do
      let ke = if enc == "ASCII" then Just "UTF-8" else listToMaybe $ aliases enc
      case ke of
-      Nothing -> return . Left . TX.pack $
-                   "Don't know how to decode as " <> enc
+      Nothing -> return . Left . TX.pack $ "Don't know how to decode as " <> enc
       Just s -> do
         c <- open s (Just True)
         let st = BSL.toStrict cs
