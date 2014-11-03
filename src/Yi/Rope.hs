@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
 
@@ -669,15 +670,27 @@ instance Binary ConverterName where
 -- brand new file, you can use 'writeFileUsingText'.
 --
 -- It's up to the user to handle exceptions.
-writeFile :: FilePath -> YiString -> ConverterName -> IO ()
+--
+-- Returns an error message if conversion failed, otherwise Nothing
+-- on success.
+writeFile :: FilePath -> YiString -> ConverterName -> IO (Maybe TX.Text)
 writeFile f s (CN cn) = open cn (Just True) >>= writeFileWithConverter f s
 
 -- | As 'writeFile' but using the provided 'Converter' rather than
 -- creating one from a 'ConverterName'.
 --
 -- It's up to the user to handle exceptions.
-writeFileWithConverter :: FilePath -> YiString -> Converter -> IO ()
-writeFileWithConverter f s c = BS.writeFile f (fromUnicode c $ toText s)
+writeFileWithConverter :: FilePath -> YiString -> Converter -> IO (Maybe TX.Text)
+writeFileWithConverter f s c = do
+    let bytes = fromUnicode c $ toText s
+        errorMsg = "Could not encode text with specified encoding"
+    enc <- detectEncoding errorMsg $ BSL.fromChunks [bytes]
+    case enc of
+        Left err -> return $ Just err
+        Right (_, (CN cn)) -> do
+            if cn == getName c
+                then BS.writeFile f bytes >> return Nothing
+                else return . Just $ errorMsg
 
 -- | Write a 'YiString' into the given file. This function uses
 -- 'TF.writeFile' to do the writing: if you have special needs for
@@ -698,10 +711,21 @@ writeFileUsingText f = TF.writeFile f . toText
 -- It is up to the user to handle exceptions not directly related to
 -- character decoding.
 readFile :: FilePath -> IO (Either TX.Text (YiString, ConverterName))
-readFile fp = do
-  cs <- BSL.readFile fp
+readFile fp = BSL.readFile fp >>= detectEncoding err
+    where err = "Could not guess the encoding of " <> TX.pack fp
+
+-- | Detects the encoding of a sequence of bytes.
+--
+-- Presumably the calculating the 'YiString' is lazy so it is fine
+-- to use this to only get the converter name.
+--
+-- Also allows specification of the error to return if the encoding
+-- of the bytes cannot be detected. The error returns won't necessarily
+-- be this error - it is used only if no encoding name is detected at all.
+detectEncoding :: TX.Text -> BSL.ByteString -> IO (Either TX.Text (YiString, ConverterName))
+detectEncoding err cs =
   case detectEncodingName cs of
-   Nothing -> return . Left . TX.pack $ "Could not guess the encoding of " <> fp
+   Nothing -> return . Left $ err
    Just enc -> do
      let ke = if enc == "ASCII" then Just "UTF-8" else listToMaybe $ aliases enc
      case ke of
