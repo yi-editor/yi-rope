@@ -114,7 +114,7 @@ overChunk f (Chunk l t) = Chunk l (f t)
 
 -- | Counts number of newlines in the given 'TX.Text'.
 countNl :: TX.Text -> Int
-countNl = TX.count (TX.pack "\n")
+countNl = TX.count "\n"
 
 instance Monoid Size where
   mempty = Indices 0 0
@@ -229,9 +229,9 @@ fromText' n | n <= 0 = fromText' defaultChunkSize
     -- one will be the specified size so we can optimise here instead
     -- of having to recompute chunk size at creation.
     r :: FingerTree Size YiChunk -> [TX.Text] -> FingerTree Size YiChunk
-    r tr []      = tr
-    r tr [!ts]   = tr |- mkChunk TX.length ts
-    r tr (!t:ts) = let r' = tr |- mkChunk (const n) t
+    r !tr []     = tr
+    r !tr (t:[]) = tr |- mkChunk TX.length t
+    r !tr (t:ts) = let r' = tr |- mkChunk (const n) t
                    in r r' ts
 
 -- | Converts a 'TX.Text' into a 'YiString' using
