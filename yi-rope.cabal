@@ -1,5 +1,5 @@
 name:                yi-rope
-version:             0.7.0.1
+version:             0.8.0
 synopsis:            A rope data structure used by Yi
 description:         A rope data structure used by Yi
 license:             GPL-2
@@ -9,12 +9,10 @@ maintainer:          fuuzetsu@fuuzetsu.co.uk
 category:            Yi
 build-type:          Simple
 cabal-version:       >=1.10
+tested-with:         GHC==7.8.4, GHC==7.10.1
 
 library
-  if true
-    ghc-options:      -fpedantic-bottoms -fexpose-all-unfoldings -Wall -O2
-  if impl(ghc >= 7.8.1)
-    ghc-options:      -flate-dmd-anal
+  ghc-options: -fpedantic-bottoms -fexpose-all-unfoldings -Wall -O2 -flate-dmd-anal -ferror-spans
 
   exposed-modules:
     Yi.Rope
