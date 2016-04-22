@@ -61,6 +61,7 @@ benchmark bench
       base >=4.5 && <5
     , criterion
     , deepseq
+    , text
     , yi-rope
 
 source-repository head
