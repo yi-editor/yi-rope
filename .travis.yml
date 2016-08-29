@@ -6,6 +6,7 @@ env:
  - CABALVER=1.18 GHCVER=7.6.3
  - CABALVER=1.20 GHCVER=7.8.4
  - CABALVER=1.22 GHCVER=7.10.1
+ - CABALVER=1.24 GHCVER=8.0.1
  - CABALVER=head GHCVER=head
 
 before_install:
@@ -13,14 +14,15 @@ before_install:
  - sudo apt-get update
  - sudo apt-get install cabal-install-$CABALVER ghc-$GHCVER libicu-dev
  - export PATH=/opt/ghc/$GHCVER/bin:$PATH
+ - cabal-$CABALVER update
+ - travis_retry cabal-$CABALVER install --only-dependencies --enable-tests --enable-benchmarks
 
 install:
- - cabal-$CABALVER update
- - travis_retry cabal-$CABALVER install Cabal
+ - cabal-$CABALVER install -j1 --enable-tests --enable-benchmarks
 
 script:
- - travis_retry cabal-$CABALVER install --only-dependencies --reorder-goals
- - cabal-$CABALVER install -j1 --enable-tests
+ - cabal-$CABALVER test
+ - cabal-$CABALVER bench
 
 notifications:
   irc: "chat.freenode.net#yi"
