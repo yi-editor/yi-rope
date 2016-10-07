@@ -476,10 +476,10 @@ break p = Yi.Rope.span (not . p)
 -- pre-process the list.
 intercalate :: YiString -> [YiString] -> YiString
 intercalate _ [] = mempty
-intercalate (YiString t') (YiString s:ss) = YiString $ s >< go ss
+intercalate (YiString t') (YiString s:ss) = YiString $ go s ss
   where
-    go []                = mempty
-    go (YiString t : ts') = t' >< t >< go ts'
+    go !acc []                = acc
+    go acc (YiString t : ts') = go (acc >< t' >< t) ts'
 
 -- | Intersperses the given character between the 'YiString's. This is
 -- useful when you have a bunch of strings you just want to separate
@@ -496,10 +496,10 @@ intercalate (YiString t') (YiString s:ss) = YiString $ s >< go ss
 -- and use 'TX.intersperse' for that instead.
 intersperse :: Char -> [YiString] -> YiString
 intersperse _ [] = mempty
-intersperse c (t:ts) = t <> go ts
+intersperse c (t:ts) = go t ts
   where
-    go [] = mempty
-    go (t':ts') = (c `cons` t') <> go ts'
+    go !acc [] = acc
+    go acc (t':ts') = go (acc <> (c `cons` t')) ts'
 
 -- | Add a 'Char' in front of a 'YiString'.
 --

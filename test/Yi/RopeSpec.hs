@@ -104,3 +104,7 @@ spec = modifyMaxSize (const 1000) $ do
     prop "R.intercalate ~ T.intercalate" $ \t ts ->
       R.toText (R.intercalate (R.fromText t) (R.fromText <$> ts))
       `shouldBe` T.intercalate t ts
+  describe "But R.intersperse is not like T.intersperse" $ do
+    prop "R.intercalate (R.singleton c) = R.intersperse c" $ \c ts ->
+      let rs = R.fromText <$> ts
+      in R.intercalate (R.singleton c) rs `shouldBe` R.intersperse c rs
