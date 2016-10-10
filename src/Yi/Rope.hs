@@ -637,8 +637,8 @@ all :: (Char -> Bool) -> YiString -> Bool
 all p = go . fromRope
   where
     go x = case viewl x of
-      EmptyL -> False
-      Chunk _ t :< ts -> TX.all p t || go ts
+      EmptyL -> True
+      Chunk _ t :< ts -> TX.all p t && go ts
 
 -- | To serialise a 'YiString', we turn it into a regular 'String'
 -- first.

@@ -60,6 +60,10 @@ spec = modifyMaxSize (const 1000) $ do
       R.any (const True) (R.fromText t) `shouldBe` T.any (const True) t
     prop "\\p -> R.any p ~ T.any p $ const False" $ \t ->
       R.any (const False) (R.fromText t) `shouldBe` T.any (const False) t
+    prop "\\p c -> R.any (== c) p ~ T.any (== c) p" $ \c t ->
+      R.any (== c) (R.fromText t) `shouldBe` T.any (== c) t
+    prop "\\p c -> R.all (== c) p ~ T.all (== c) p" $ \c t ->
+      R.all (== c) (R.fromText t) `shouldBe` T.all (== c) t
     prop "\\f -> R.withText ~ f $ T.toTitle" $
       R.withText T.toTitle `isLikeT` T.toTitle
     prop "\\p -> R.dropWhile p ~ T.dropWhile p $ isUpper" $
