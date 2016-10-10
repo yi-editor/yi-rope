@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Yi.RopeSpec (main, spec) where
 
-import           Control.Applicative
 import           Data.Char (isUpper, toUpper, isSpace)
 import qualified Data.Text as T
 import           Test.Hspec

@@ -62,7 +62,6 @@ module Yi.Rope (
 
 
 import           Codec.Text.Detect (detectEncodingName)
-import           Control.Applicative ((<$>))
 import           Control.DeepSeq
 import           Data.Binary
 import qualified Data.ByteString as BS
