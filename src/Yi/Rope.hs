@@ -569,26 +569,11 @@ splitAtLine' p (YiString tr) = case viewl s of
 
 -- | This is like 'lines'' but it does *not* preserve newlines.
 --
--- Specifically, we just strip the newlines from the result of
--- 'lines''.
---
--- This behaves slightly differently than the old split: the number of
--- resulting strings here is equal to the number of newline characters
--- in the underlying string. This is much more consistent than the old
--- behaviour which blindly used @ByteString@s split and stitched the
--- result back together which was inconsistent with the rest of the
--- interface which worked with number of newlines.
+-- Implementation note: GHC does a pretty good job of optimizing
+-- this naive version. Hand coding a loop should be unnecessary
+-- here.
 lines :: YiString -> [YiString]
-lines = Prelude.map dropNl . lines'
-  where
-    dropNl (YiString t)  = case viewr t of
-      EmptyR -> Yi.Rope.empty
-      ts :> ch@(Chunk l tx) ->
-        YiString $ ts |- if TX.null tx
-                         then ch
-                         else case TX.last tx of
-                           '\n' -> Chunk (l - 1) (TX.init tx)
-                           _ -> ch
+lines = fmap fromText . TX.lines . toText
 
 -- | Splits the 'YiString' into a list of 'YiString' each containing a
 -- line.
