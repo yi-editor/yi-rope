@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
@@ -70,6 +71,7 @@ import           Data.Char (isSpace)
 import           Data.Default
 import qualified Data.FingerTree as T
 import           Data.FingerTree hiding (null, empty, reverse, split)
+import           Data.Function (fix)
 import qualified Data.List as L (foldl')
 import           Data.Maybe
 import           Data.Monoid
@@ -588,13 +590,15 @@ lines = fmap fromText . TX.lines . toText
 --
 -- > 'toText' . 'concat' . 'lines'' ≡ 'toText'
 --
--- but the underlying structure might change: notably, chunks will
--- most likely change sizes.
 lines' :: YiString -> [YiString]
-lines' t = let (YiString f, YiString s) = splitAtLine' 0 t
-           in if T.null s
-              then if T.null f then [] else [YiString f]
-              else YiString f : lines' (YiString s)
+lines' = splitByKeepingDelim '\n'
+
+splitByKeepingDelim :: Char -> YiString -> [YiString]
+splitByKeepingDelim x = fmap fromText . fix go x . toText
+  where
+    go :: (Char -> TX.Text -> [TX.Text]) -> Char -> TX.Text -> [TX.Text]
+    go _ c (TX.span (/=c) -> (_, TX.null -> True)) = []
+    go f c (TX.span (/=c) -> (a,b)) = a `TX.snoc` c : f c (TX.tail b)
 
 -- | Joins up lines by a newline character. It does not leave a
 -- newline after the last line. If you want a more classical
