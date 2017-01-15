@@ -160,6 +160,7 @@ main = defaultMain $
   , onCharGroup "singleton" F.singleton
   , onTextGroup "countNewLines" F.countNewLines
   , onTextGroup "lines" F.lines
+  , onTextGroup "lines'" F.lines'
   , onSplitGroup "splitAt" F.splitAt
   , onSplitGroup "splitAtLine" F.splitAtLine
   , onTextGroup "toReverseString" F.toReverseString
