@@ -1,0 +1,15 @@
+yi-rope was originally designed and implemented in 2008 by
+Jean-Philippe Bernardy and Gustav Munkby as a fingertree containing
+utf8-encoded ByteStrings. It was ported to a fingertree over Text
+chunks in 2014 by Mateusz Kowalczyk. Below is the list of contributors
+to this package. If you have contributed to this package in any way,
+please add yourself to the list.
+
+  Jean-Philippe Bernardy
+  Gustav Munkby
+  Mateusz Kowalczyk
+  Jared Hance
+  Siddhanathan Shanmugam
+  Ryan Scott
+  aiya000
+  Dmitry Ivanov
