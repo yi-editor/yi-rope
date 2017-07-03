@@ -84,7 +84,7 @@ mkTextSample s = force $ zipWith mkTexts chunkSizes (Prelude.repeat s)
     mkTexts x t = (x, F.fromText' x t)
 
 allTexts :: [(Int -> String, [(Int, F.YiString)])]
-allTexts = [longTexts {-, wideTexts, shortTexts, tinyTexts -}]
+allTexts = [longTexts, wideTexts, shortTexts, tinyTexts]
 
 allChars :: [(Int -> String, [(Int, Char)])]
 allChars = map mkChar "λa"
