@@ -503,24 +503,18 @@ intersperse c (t:ts) = go t ts
     go acc (t':ts') = go (acc <> (c `cons` t')) ts'
 
 -- | Add a 'Char' in front of a 'YiString'.
---
--- We add the character to the front of the first chunk. This does
--- mean that a lot of 'cons' might result in an abnormally large first
--- chunk so if you have to do that, consider using 'append' instead..
 cons :: Char -> YiString -> YiString
 cons c (YiString t) = case viewl t of
   EmptyL -> Yi.Rope.singleton c
-  Chunk !l x :< ts -> YiString $ Chunk (l + 1) (c `TX.cons` x) <| ts
+  Chunk l x :< ts | l < defaultChunkSize -> YiString $ Chunk (l + 1) (c `TX.cons` x) <| ts
+  _ -> YiString $ Chunk 1 (TX.singleton c) <| t
 
 -- | Add a 'Char' in the back of a 'YiString'.
---
--- We add the character to the end of the last chunk. This does mean
--- that a lot of 'snoc' might result in an abnormally large last chunk
--- so if you have to do that, consider using 'append' instead..
 snoc :: YiString -> Char -> YiString
 snoc (YiString t) c = case viewr t of
   EmptyR -> Yi.Rope.singleton c
-  ts :> Chunk l x -> YiString $ ts |> Chunk (l + 1) (x `TX.snoc` c)
+  ts :> Chunk l x | l < defaultChunkSize -> YiString $ ts |> Chunk (l + 1) (x `TX.snoc` c)
+  _ -> YiString $ t |> Chunk 1 (TX.singleton c)
 
 -- | Single character 'YiString'. Consider whether it's worth creating
 -- this, maybe you can use 'cons' or 'snoc' instead?
