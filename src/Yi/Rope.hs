@@ -67,7 +67,6 @@ import           Control.Exception (try)
 import           Data.Binary
 import qualified Data.ByteString.Lazy as BSL
 import           Data.Char (isSpace)
-import           Data.Default
 import qualified Data.FingerTree as T
 import           Data.FingerTree hiding (null, empty, reverse, split)
 import           Data.Function (fix)
@@ -162,9 +161,6 @@ instance Monoid YiString where
 
 instance Ord YiString where
   compare x y = toText x `compare` toText y
-
-instance Default YiString where
-  def = mempty
 
 (-|) :: YiChunk -> FingerTree Size YiChunk -> FingerTree Size YiChunk
 b -| t | chunkSize b == 0 = t
@@ -368,12 +364,12 @@ splitAt n (YiString t)
 
 -- | Takes the first n given characters.
 take :: Int -> YiString -> YiString
-take 1 = maybe def Yi.Rope.singleton . Yi.Rope.head
+take 1 = maybe mempty Yi.Rope.singleton . Yi.Rope.head
 take n = fst . Yi.Rope.splitAt n
 
 -- | Drops the first n characters.
 drop :: Int -> YiString -> YiString
-drop 1 = fromMaybe def . Yi.Rope.tail
+drop 1 = fromMaybe mempty . Yi.Rope.tail
 drop n = snd . Yi.Rope.splitAt n
 
 -- | The usual 'Prelude.dropWhile' optimised for 'YiString's.
