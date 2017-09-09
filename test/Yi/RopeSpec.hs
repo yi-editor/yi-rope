@@ -37,6 +37,8 @@ spec = modifyMaxSize (const 1000) $ do
     prop "R.length ~ T.length" $ R.length `isLike` T.length
     prop "R.null ~ T.null" $ R.null `isLike` T.null
     prop "R.countNewLines ~ T.count \\n" $ R.countNewLines `isLike` T.count "\n"
+    prop "R.concat . R.lines' = id" $ (R.toText . R.concat . R.lines') `isLike` id
+    prop "R.lines ~ T.lines" $ (fmap R.toText . R.lines) `isLike` T.lines
     prop "R.empty ~ T.empty" $ R.toText R.empty `shouldBe` T.empty
     prop "fst . R.splitAt ~ fst . T.splitAt" $ \i ->
       fst . R.splitAt i `isLikeT` fst . T.splitAt i
