@@ -1,3 +1,10 @@
+0.10 (2017-09-09)
+-----------------
+
+* Dropped data-default, text-icu and charsdetect-ae dependencies
+* cons and snoc now don't produce chunks of unbounded length
+* Reverted lines' that was broken by 0.9 and added the corresponding test
+
 0.9 (2017-07-03)
 ----------------
 
