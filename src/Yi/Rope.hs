@@ -1,9 +1,11 @@
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ViewPatterns #-}
-{-# OPTIONS_HADDOCK show-extensions #-}
+{-# language BangPatterns #-}
+{-# language DeriveDataTypeable #-}
+{-# language LambdaCase #-}
+{-# language MultiParamTypeClasses #-}
+{-# language OverloadedStrings #-}
+{-# language ScopedTypeVariables #-}
+{-# language ViewPatterns #-}
+{-# options_haddock show-extensions #-}
 
 -- |
 -- Module      :  Yi.Rope
@@ -52,8 +54,7 @@ module Yi.Rope (
    Yi.Rope.replicate, Yi.Rope.replicateChar,
 
    -- * IO
-   ConverterName, unCn, Yi.Rope.readFile, Yi.Rope.writeFile,
-   Yi.Rope.writeFileUsingText, Yi.Rope.writeFileWithConverter,
+   Yi.Rope.readFile, Yi.Rope.writeFile,
 
    -- * Escape latches to underlying content. Note that these are safe
    -- to use but it does not mean they should.
@@ -61,11 +62,9 @@ module Yi.Rope (
 
   ) where
 
-
-import           Codec.Text.Detect (detectEncodingName)
 import           Control.DeepSeq
+import           Control.Exception (try)
 import           Data.Binary
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import           Data.Char (isSpace)
 import           Data.Default
@@ -77,9 +76,10 @@ import           Data.Maybe
 import           Data.Monoid
 import           Data.String (IsString(..))
 import qualified Data.Text as TX
-import qualified Data.Text.Encoding as TXE
-import           Data.Text.ICU.Convert
-import qualified Data.Text.IO as TF (writeFile)
+import qualified Data.Text.Encoding.Error as TXEE
+import qualified Data.Text.Lazy as TXL
+import qualified Data.Text.Lazy.Encoding as TXLE
+import qualified Data.Text.IO as TXIO (writeFile)
 import           Data.Typeable
 import           Prelude hiding (drop)
 
@@ -124,7 +124,7 @@ instance Monoid Size where
 instance Measured Size YiChunk where
   measure (Chunk l t) = Indices l (countNl t)
 
--- | A 'YiString' is a 'FingerTree' with cached column and line counts
+-- | A 'YiString' is a 'FingerTree' with cached char and line counts
 -- over chunks of 'TX.Text'.
 newtype YiString = YiString { fromRope :: FingerTree Size YiChunk }
                  deriving (Show, Typeable)
@@ -239,6 +239,9 @@ fromText' n | n <= 0 = fromText' defaultChunkSize
 -- 'defaultChunkSize'-sized chunks for the underlying tree.
 fromText :: TX.Text -> YiString
 fromText = fromText' defaultChunkSize
+
+fromLazyText :: TXL.Text -> YiString
+fromLazyText = YiString . T.fromList . fmap (mkChunk TX.length) . TXL.toChunks
 
 -- | Consider whether you really need to use this!
 toText :: YiString -> TX.Text
@@ -635,60 +638,11 @@ instance Binary YiString where
   put = put . toString
   get = Yi.Rope.fromString <$> get
 
--- | 'ConverterName' is used to convey information about the
--- underlying 'Converter' used within the buffer to encode and decode
--- text. It is mostly here due to the lack of 'Binary' instance for
--- 'Converter' itself.
-newtype ConverterName = CN String deriving (Show, Eq, Ord, Read, Typeable)
-
--- | Returns the underlying string.
-unCn :: ConverterName -> String
-unCn (CN s) = s
-
--- | Simply 'put's/'get's the underlying 'String'.
-instance Binary ConverterName where
-  put (CN s) = put s
-  get = CN <$> get
-
--- | Writes the given 'YiString' to the given file, according to the
--- 'Converter' specified by 'ConverterName'. You can obtain a
--- 'ConverterName' through 'readFile'. If you have a 'Converter', use
--- 'writeFileWithConverter' instead.
---
--- If you don't care about the encoding used such as when creating a
--- brand new file, you can use 'writeFileUsingText'.
+-- | Write a 'YiString' into the given file.
 --
 -- It's up to the user to handle exceptions.
---
--- Returns an error message if conversion failed, otherwise Nothing
--- on success.
-writeFile :: FilePath -> YiString -> ConverterName -> IO (Maybe TX.Text)
-writeFile f s (CN cn) = open cn (Just True) >>= writeFileWithConverter f s
-
--- | As 'writeFile' but using the provided 'Converter' rather than
--- creating one from a 'ConverterName'.
---
--- It's up to the user to handle exceptions.
-writeFileWithConverter :: FilePath -> YiString -> Converter -> IO (Maybe TX.Text)
-writeFileWithConverter f s c = do
-    let bytes = fromUnicode c $ toText s
-        errorMsg = "Could not encode text with specified encoding"
-    enc <- detectEncoding errorMsg $ BSL.fromChunks [bytes]
-    case enc of
-        Left err -> return $ Just err
-        Right (_, (CN cn)) -> do
-            if cn == getName c
-                then BS.writeFile f bytes >> return Nothing
-                else return . Just $ errorMsg
-
--- | Write a 'YiString' into the given file. This function uses
--- 'TF.writeFile' to do the writing: if you have special needs for
--- preserving encoding/decoding, use 'writeFile' instead.
---
--- It's up to the user to handle exceptions.
-writeFileUsingText :: FilePath -> YiString -> IO ()
-writeFileUsingText f = TF.writeFile f . toText
-
+writeFile :: FilePath -> YiString -> IO ()
+writeFile f = TXIO.writeFile f . toText
 
 -- | Reads file into the rope, also returning the 'ConverterName' that
 -- was used for decoding. You should resupply this to 'writeFile' if
@@ -699,34 +653,22 @@ writeFileUsingText f = TF.writeFile f . toText
 --
 -- It is up to the user to handle exceptions not directly related to
 -- character decoding.
-readFile :: FilePath -> IO (Either TX.Text (YiString, ConverterName))
-readFile fp = BSL.readFile fp >>= detectEncoding err
-    where err = "Could not guess the encoding of " <> TX.pack fp
-
--- | Detects the encoding of a sequence of bytes.
---
--- Presumably the calculating the 'YiString' is lazy so it is fine
--- to use this to only get the converter name.
---
--- Also allows specification of the error to return if the encoding
--- of the bytes cannot be detected. The error returns won't necessarily
--- be this error - it is used only if no encoding name is detected at all.
-detectEncoding :: TX.Text -> BSL.ByteString
-               -> IO (Either TX.Text (YiString, ConverterName))
-detectEncoding err cs =
-  case detectEncodingName cs of
-   Nothing -> return $ case TXE.decodeUtf8' $ BSL.toStrict cs of
-      -- The detection failed but stay optimistic and try as UTF8 anyway.
-     Left _ -> Left err
-     Right tx -> Right (fromText tx, CN "UTF-8")
-   Just enc -> do
-     let ke = if enc == "ASCII" then Just "UTF-8" else listToMaybe $ aliases enc
-     case ke of
-      Nothing -> return . Left . TX.pack $ "Don't know how to decode as " <> enc
-      Just s -> do
-        c <- open s (Just True)
-        let st = BSL.toStrict cs
-        return $ Right (fromText $ toUnicode c st, CN $ getName c)
+readFile :: FilePath -> IO (Either TX.Text YiString)
+readFile fp = BSL.readFile fp >>= go decoders
+  where
+  go [] _ = pure (Left err)
+  go (d : ds) bytes =
+      try (pure (d bytes)) >>= \case
+          Left (_ :: TXEE.UnicodeException) -> go ds bytes
+          Right text -> pure (Right (fromLazyText text))
+  err = "Could not guess the encoding of " <> TX.pack fp
+  decoders =
+      [ TXLE.decodeUtf8
+      , TXLE.decodeUtf16LE
+      , TXLE.decodeUtf16BE
+      , TXLE.decodeUtf32LE
+      , TXLE.decodeUtf32BE
+      ]
 
 -- | Filters the characters from the underlying string.
 --
