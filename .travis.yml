@@ -20,7 +20,6 @@ install:
 
 script:
  - cabal test
- - cabal bench
 
 notifications:
   irc: "chat.freenode.net#yi"
