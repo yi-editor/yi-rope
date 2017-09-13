@@ -1,0 +1,18 @@
+resolver: lts-8.18
+
+nix:
+  enable: true
+  packages:
+    - libcxx
+    - icu
+    - gcc
+    - ncurses
+
+packages:
+- '.'
+
+extra-deps: []
+
+flags: {}
+
+extra-package-dbs: []

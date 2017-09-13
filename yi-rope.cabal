@@ -15,6 +15,7 @@ library
 
   exposed-modules:
     Yi.Rope
+    Yi.Segment
 
   build-depends:
       base >=4.8 && <5
