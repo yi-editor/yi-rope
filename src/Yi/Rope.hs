@@ -8,8 +8,8 @@
 {-# language FlexibleContexts #-}
 {-# language FlexibleInstances #-}
 {-# language TypeFamilies #-}
-{-# language GADTs #-}
 {-# language UndecidableInstances #-}
+{-# language StandaloneDeriving #-}
 {-# options_haddock show-extensions #-}
 
 -- |
@@ -30,7 +30,8 @@
 -- it unsuitable for storing anything but text.
 
 module Yi.Rope (
-   Yi.Rope.YiString,
+   -- Yi.Rope.YiString, 
+   Yi.Rope.Rope,
 
    -- * Conversions to YiString
    Yi.Rope.fromString, Yi.Rope.fromText,
@@ -87,7 +88,6 @@ import           Data.Typeable
 import           Prelude hiding (drop)
 
 import qualified Yi.Segment as S
-import Yi.Segment (_fromChunk, chunkSize)
 
 class MSeg t where
   type Meas t
@@ -111,14 +111,14 @@ data Size = Indices { charIndex :: {-# UNPACK #-} !Int
 -- > mkChunk 'TX.Text.length' someText
 mkChunk :: (TX.Text -> Int) -- ^ The length function to use.
         -> TX.Text
-        -> S.Chunk TX.Text
-mkChunk l t = S.Chunk (l t) t
+        -> Chunk TX.Text
+mkChunk l t = Chunk (l t) t
 
 -- | Transform the chunk content. It's vital that the transformation
 -- preserves the length of the content.
 overChunk :: (TX.Text -> TX.Text) -- ^ Length-preserving content transformation.
-          -> S.Chunk TX.Text -> S.Chunk TX.Text
-overChunk f (S.Chunk l t) = S.Chunk l (f t)
+          -> Chunk TX.Text -> Chunk TX.Text
+overChunk f (Chunk l t) = Chunk l (f t)
 
 -- | Counts number of newlines in the given 'TX.Text'.
 countNl :: TX.Text -> Int
@@ -128,34 +128,26 @@ instance Monoid Size where
   mempty = Indices 0 0
   Indices c l `mappend` Indices c' l' = Indices (c + c') (l + l')
 
-instance Measured Size (S.Chunk TX.Text) where
-  measure (S.Chunk l t) = Indices l (countNl t)
+instance Measured Size (Chunk TX.Text) where
+  measure (Chunk l t) = Indices l (countNl t)
 
 
+-- type YiString = Rope TX.Text
 
-data Rope a where
-  Rope :: (T.Measured (Meas a) (S.Chunk a)) => T.FingerTree (Meas a) (S.Chunk a) -> Rope a
-  deriving (Typeable)
+newtype Rope a = Rope { fromRope :: T.FingerTree (Meas a) (Chunk a) }
+                      deriving (Typeable)
+deriving instance (Show a) => Show (Rope a)
 
-instance (Show a) => Show (Rope a) where
-  show (Rope a) = "Rope " ++ show a
-
-fromRope :: Rope a -> T.FingerTree (Meas a) (S.Chunk a)
-fromRope (Rope a) = a
-
-instance (T.Measured (Meas a) (S.Chunk a)) => Monoid (Rope a) where
+instance (T.Measured (Meas a) (Chunk a)) => Monoid (Rope a) where
   mempty = Rope mempty
   Rope a `mappend` Rope b = Rope (a `mappend` b)
 
 instance Ord (Rope TX.Text) where
   compare x y = toText x `compare` toText y
 
-
-
--- | A 'YiString' is a 'FingerTree' with cached char and line counts
--- over chunks of 'TX.Text'.
-newtype YiString = YiString { fromRope' :: FingerTree Size (S.Chunk TX.Text) }
-                 deriving (Show, Typeable)
+data Chunk a = Chunk { chunkSize :: {-# UNPACK #-} !Int
+                     , _fromChunk :: {-# UNPACK #-} !a
+                     } deriving (Show, Eq, Typeable)
 
 -- | Two 'YiString's are equal if their underlying text is.
 --
@@ -174,8 +166,8 @@ instance (Eq TX.Text) => Eq (Rope TX.Text) where
 instance NFData Size where
   rnf (Indices !c !l) = c `seq` l `seq` ()
 
-instance NFData (S.Chunk TX.Text) where
-  rnf (S.Chunk !i !t) = i `seq` rnf t
+instance NFData (Chunk TX.Text) where
+  rnf (Chunk !i !t) = i `seq` rnf t
 
 instance NFData (Rope TX.Text) where
   rnf = rnf . toText
@@ -183,11 +175,11 @@ instance NFData (Rope TX.Text) where
 instance IsString (Rope TX.Text) where
   fromString = Yi.Rope.fromString
 
-(-|) :: (S.Chunk TX.Text) -> FingerTree (Meas TX.Text) (S.Chunk TX.Text) -> FingerTree (Meas TX.Text) (S.Chunk TX.Text)
+(-|) :: (Chunk TX.Text) -> FingerTree (Meas TX.Text) (Chunk TX.Text) -> FingerTree (Meas TX.Text) (Chunk TX.Text)
 b -| t | chunkSize b == 0 = t
        | otherwise        = b <| t
 
-(|-) :: FingerTree (Meas TX.Text) (S.Chunk TX.Text) -> (S.Chunk TX.Text) -> FingerTree (Meas TX.Text) (S.Chunk TX.Text)
+(|-) :: FingerTree (Meas TX.Text) (Chunk TX.Text) -> (Chunk TX.Text) -> FingerTree (Meas TX.Text) (Chunk TX.Text)
 t |- b | chunkSize b == 0 = t
        | otherwise        = t |> b
 
@@ -246,7 +238,7 @@ fromText' n | n <= 0 = fromText' defaultChunkSize
     -- predetermined chunk size, we know that all chunks but the last
     -- one will be the specified size so we can optimise here instead
     -- of having to recompute chunk size at creation.
-    r :: FingerTree Size (S.Chunk TX.Text) -> [TX.Text] -> FingerTree Size (S.Chunk TX.Text)
+    r :: FingerTree Size (Chunk TX.Text) -> [TX.Text] -> FingerTree Size (Chunk TX.Text)
     r !tr []     = tr
     r !tr (t:[]) = tr |- mkChunk TX.length t
     r !tr (t:ts) = let r' = tr |- mkChunk (const n) t
@@ -264,9 +256,9 @@ fromLazyText = Rope . T.fromList . fmap (mkChunk TX.length) . TXL.toChunks
 toText :: Rope TX.Text -> TX.Text
 toText = TX.concat . go . fromRope
   where
-    go :: FingerTree Size (S.Chunk TX.Text) -> [TX.Text]
+    go :: FingerTree Size (Chunk TX.Text) -> [TX.Text]
     go t = case viewl t of
-      S.Chunk _ !c :< cs -> c : go cs
+      Chunk _ !c :< cs -> c : go cs
       EmptyL -> []
 
 -- | Spits out the underlying string, reversed.
@@ -313,42 +305,42 @@ append :: Rope TX.Text -> Rope TX.Text -> Rope TX.Text
 append (Rope t) (Rope t') = case (viewr t, viewl t') of
   (EmptyR, _) -> Rope t'
   (_, EmptyL) -> Rope t
-  (ts :> S.Chunk l x, S.Chunk l' x' :< ts') ->
+  (ts :> Chunk l x, Chunk l' x' :< ts') ->
     let len = l + l' in case compare len defaultChunkSize of
       GT -> Rope (t <> t')
-      _ -> Rope (ts |- S.Chunk len (x <> x') <> ts')
+      _ -> Rope (ts |- Chunk len (x <> x') <> ts')
 
 -- | Concat a list of 'YiString's.
 concat :: [Rope TX.Text] -> Rope TX.Text
 concat = L.foldl' append empty
 
 -- | Take the first character of the underlying string if possible.
-head :: (S.Segmented a) => Rope a -> Maybe (S.Segment a)
+head :: (S.Segmented a, T.Measured (Meas a) (Chunk a)) => Rope a -> Maybe (S.Segment a)
 head (Rope t) = case viewl t of
   EmptyL -> Nothing
-  S.Chunk _ x :< _ -> if S.null x then Nothing else Just (S.head x)
+  Chunk _ x :< _ -> if S.null x then Nothing else Just (S.head x)
 
 -- | Take the last character of the underlying string if possible.
 last :: Rope TX.Text -> Maybe Char
 last (Rope t) = case viewr t of
   EmptyR -> Nothing
-  _ :> S.Chunk _ x -> if TX.null x then Nothing else Just (TX.last x)
+  _ :> Chunk _ x -> if TX.null x then Nothing else Just (TX.last x)
 
 -- | Takes every character but the last one: returns Nothing on empty
 -- string.
 init :: Rope TX.Text -> Maybe (Rope TX.Text)
 init (Rope t) = case viewr t of
   EmptyR -> Nothing
-  ts :> S.Chunk 0 _ -> Yi.Rope.init (Rope ts)
-  ts :> S.Chunk l x -> Just . Rope $ ts |- S.Chunk (l - 1) (TX.init x)
+  ts :> Chunk 0 _ -> Yi.Rope.init (Rope ts)
+  ts :> Chunk l x -> Just . Rope $ ts |- Chunk (l - 1) (TX.init x)
 
 -- | Takes the tail of the underlying string. If the string is empty
 -- to begin with, returns Nothing.
 tail :: Rope TX.Text -> Maybe (Rope TX.Text)
 tail (Rope t) = case viewl t of
   EmptyL -> Nothing
-  S.Chunk 0 _ :< ts -> Yi.Rope.tail (Rope ts)
-  S.Chunk l x :< ts -> Just . Rope $ S.Chunk (l - 1) (TX.tail x) -| ts
+  Chunk 0 _ :< ts -> Yi.Rope.tail (Rope ts)
+  Chunk l x :< ts -> Just . Rope $ Chunk (l - 1) (TX.tail x) -| ts
 
 -- | Splits the string at given character position.
 --
@@ -374,10 +366,10 @@ splitAt :: Int -> Rope TX.Text -> (Rope TX.Text, Rope TX.Text)
 splitAt n (Rope t)
   | n <= 0 = (mempty, Rope t)
   | otherwise = case viewl s of
-    S.Chunk l x :< ts | n' /= 0 ->
+    Chunk l x :< ts | n' /= 0 ->
       let (lx, rx) = S.splitAt n' x
-      in (Rope $ f |> S.Chunk n' lx,
-          Rope $ S.Chunk (l - n') rx -| ts)
+      in (Rope $ f |> Chunk n' lx,
+          Rope $ Chunk (l - n') rx -| ts)
     _ -> (Rope f, Rope s)
   where
     (f, s) = T.split ((> n) . charIndex) t
@@ -399,8 +391,8 @@ dropWhile p = Rope . go . fromRope
   where
     go t = case viewl t of
       EmptyL -> T.empty
-      S.Chunk 0 _ :< ts -> go ts
-      S.Chunk l x :< ts ->
+      Chunk 0 _ :< ts -> go ts
+      Chunk l x :< ts ->
         let r = TX.dropWhile p x
             l' = TX.length r
         in case compare l' l of
@@ -410,14 +402,14 @@ dropWhile p = Rope . go . fromRope
           -- next chunk.
           LT | TX.null r -> go ts
           -- It wasn't everything and we have left-overs, we must be done.
-             | otherwise -> S.Chunk l' r <| ts
+             | otherwise -> Chunk l' r <| ts
           -- We shouldn't really get here or it would mean that
           -- dropping stuff resulted in more content than we had. This
           -- can only happen if unsafe functions don't preserve the
           -- chunk size and it goes out of sync with the text length.
           -- Preserve this abomination, it may be useful for
           -- debugging.
-          _ -> S.Chunk l' r -| ts
+          _ -> Chunk l' r -| ts
 
 -- | As 'Yi.Rope.dropWhile' but drops from the end instead.
 dropWhileEnd :: (Char -> Bool) -> Rope TX.Text -> Rope TX.Text
@@ -425,15 +417,15 @@ dropWhileEnd p = Rope . go . fromRope
   where
     go t = case viewr t of
       EmptyR -> T.empty
-      ts :> S.Chunk 0 _ -> go ts
-      ts :> S.Chunk l x ->
+      ts :> Chunk 0 _ -> go ts
+      ts :> Chunk l x ->
         let r = TX.dropWhileEnd p x
             l' = TX.length r
         in case compare l' l of
           EQ -> t
           LT | TX.null r -> go ts
-             | otherwise -> ts |> S.Chunk l' r
-          _ -> ts |- S.Chunk l' r
+             | otherwise -> ts |> Chunk l' r
+          _ -> ts |- Chunk l' r
 
 -- | The usual 'Prelude.takeWhile' optimised for 'YiString's.
 takeWhile :: (S.Segment TX.Text -> Bool) -> Rope TX.Text -> Rope TX.Text
@@ -441,19 +433,19 @@ takeWhile p = Rope . go . fromRope
   where
     go t = case viewl t of
       EmptyL -> T.empty
-      S.Chunk 0 _ :< ts -> go ts
-      S.Chunk l x :< ts ->
+      Chunk 0 _ :< ts -> go ts
+      Chunk l x :< ts ->
         let r = S.takeWhile p x
             l' = S.length r
         in case compare l' l of
           -- We took the whole chunk, keep taking more.
-          EQ -> S.Chunk l x -| go ts
+          EQ -> Chunk l x -| go ts
           -- We took some stuff but not everything so we're done.
           -- Alternatively, we took more than the size chunk so
           -- preserve this wonder. This should only ever happen if you
-          -- use unsafe functions and S.Chunk size goes out of sync with
+          -- use unsafe functions and Chunk size goes out of sync with
           -- actual text length.
-          _ -> T.singleton $ S.Chunk l' r
+          _ -> T.singleton $ Chunk l' r
 
 -- | Like 'Yi.Rope.takeWhile' but takes from the end instead.
 takeWhileEnd :: (S.Segment TX.Text -> Bool) -> Rope TX.Text -> Rope TX.Text
@@ -461,10 +453,10 @@ takeWhileEnd p = Rope . go . fromRope
   where
     go t = case viewr t of
       EmptyR -> T.empty
-      ts :> S.Chunk 0 _ -> go ts
-      ts :> S.Chunk l x -> case compare l' l of
-        EQ -> go ts |> S.Chunk l x
-        _ -> T.singleton $ S.Chunk l' r
+      ts :> Chunk 0 _ -> go ts
+      ts :> Chunk l x -> case compare l' l of
+        EQ -> go ts |> Chunk l x
+        _ -> T.singleton $ Chunk l' r
         where
           -- no TX.takeWhileEnd – https://github.com/bos/text/issues/89
           r = TX.reverse . TX.takeWhile p . TX.reverse $ x
@@ -526,20 +518,20 @@ intersperse c (t:ts) = go t ts
 cons :: S.Segment TX.Text -> Rope TX.Text -> Rope TX.Text
 cons c (Rope t) = case viewl t of
   EmptyL -> Yi.Rope.singleton c
-  S.Chunk l x :< ts | l < defaultChunkSize -> Rope $ S.Chunk (l + 1) (c `S.cons` x) <| ts
-  _ -> Rope $ S.Chunk 1 (S.singleton c) <| t
+  Chunk l x :< ts | l < defaultChunkSize -> Rope $ Chunk (l + 1) (c `S.cons` x) <| ts
+  _ -> Rope $ Chunk 1 (S.singleton c) <| t
 
 -- | Add a 'Char' in the back of a 'YiString'.
 snoc :: Rope TX.Text -> S.Segment TX.Text -> Rope TX.Text
 snoc (Rope t) c = case viewr t of
   EmptyR -> Yi.Rope.singleton c
-  ts :> S.Chunk l x | l < defaultChunkSize -> Rope $ ts |> S.Chunk (l + 1) (x `TX.snoc` c)
-  _ -> Rope $ t |> S.Chunk 1 (S.singleton c)
+  ts :> Chunk l x | l < defaultChunkSize -> Rope $ ts |> Chunk (l + 1) (x `TX.snoc` c)
+  _ -> Rope $ t |> Chunk 1 (S.singleton c)
 
 -- | Single character 'YiString'. Consider whether it's worth creating
 -- this, maybe you can use 'cons' or 'snoc' instead?
-singleton :: (Measured (Meas a) (S.Chunk a), S.Segmented a) => S.Segment a -> Rope a
-singleton c = Rope . T.singleton $ S.Chunk 1 (S.singleton c)
+singleton :: (Measured (Meas a) (Chunk a), S.Segmented a) => S.Segment a -> Rope a
+singleton c = Rope . T.singleton $ Chunk 1 (S.singleton c)
 
 -- | Splits the underlying string before the given line number.
 -- Zero-indexed lines.
@@ -563,7 +555,7 @@ splitAtLine n r | n <= 0    = (empty, r)
 -- characters.
 splitAtLine' :: Int -> Rope TX.Text -> (Rope TX.Text, Rope TX.Text)
 splitAtLine' p (Rope tr) = case viewl s of
-  ch@(S.Chunk _ x) :< r ->
+  ch@(Chunk _ x) :< r ->
     let excess = lineIndex (measure f) + lineIndex (measure ch) - p - 1
         (lx, rx) = cutExcess excess x
     in (Rope $ f |- mkChunk TX.length lx,
@@ -599,11 +591,11 @@ lines = Prelude.map dropNl . lines'
   where
     dropNl (Rope t)  = case viewr t of
       EmptyR -> Yi.Rope.empty
-      ts :> ch@(S.Chunk l tx) ->
+      ts :> ch@(Chunk l tx) ->
         Rope $ ts |- if S.null tx
                          then ch
                          else case S.last tx of
-                           '\n' -> S.Chunk (l - 1) (S.init tx)
+                           '\n' -> Chunk (l - 1) (S.init tx)
                            _ -> ch
 
 -- | Splits the 'YiString' into a list of 'YiString' each containing a
@@ -644,7 +636,7 @@ any p = go . fromRope
   where
     go x = case viewl x of
       EmptyL -> False
-      S.Chunk _ t :< ts -> S.any p t || go ts
+      Chunk _ t :< ts -> S.any p t || go ts
 
 -- | 'YiString' specialised @all@.
 --
@@ -654,7 +646,7 @@ all p = go . fromRope
   where
     go x = case viewl x of
       EmptyL -> True
-      S.Chunk _ t :< ts -> S.all p t && go ts
+      Chunk _ t :< ts -> S.all p t && go ts
 
 -- | To serialise a 'YiString', we turn it into a regular 'String'
 -- first.
@@ -703,7 +695,7 @@ filter p = Rope . go . fromRope
   where
     go t = case viewl t of
       EmptyL -> T.empty
-      S.Chunk _ x :< ts -> mkChunk S.length (S.filter p x) -| go ts
+      Chunk _ x :< ts -> mkChunk S.length (S.filter p x) -| go ts
 
 -- | Maps the characters over the underlying string.
 map :: (S.Segment TX.Text -> S.Segment TX.Text) -> Rope TX.Text -> Rope TX.Text
@@ -711,7 +703,7 @@ map f = Rope . go . fromRope
   where
     go t = case viewl t of
       EmptyL -> T.empty
-      S.Chunk l x :< ts -> S.Chunk l (TX.map f x) <| go ts
+      Chunk l x :< ts -> Chunk l (TX.map f x) <| go ts
 
 -- | Join given 'YiString's with a space. Empty lines will be filtered
 -- out first.
@@ -746,7 +738,7 @@ foldl' f a = go a . fromRope
   where
     go acc t = case viewl t of
       EmptyL -> acc
-      S.Chunk _ x :< ts -> let r = TX.foldl' f acc x
+      Chunk _ x :< ts -> let r = TX.foldl' f acc x
                             in r `seq` go r ts
 
 -- | Replicate the given YiString set number of times, concatenating
@@ -793,4 +785,4 @@ withText f = Rope . T.fmap' (mkChunk S.length . f . _fromChunk) . fromRope
 unsafeWithText :: (TX.Text -> TX.Text) -> Rope TX.Text -> Rope TX.Text
 unsafeWithText f = Rope . T.unsafeFmap g . fromRope
   where
-    g (S.Chunk l t) = S.Chunk l (f t)
+    g (Chunk l t) = Chunk l (f t)

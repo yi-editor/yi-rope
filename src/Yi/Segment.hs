@@ -45,9 +45,3 @@ instance Segmented TX.Text where
   all = TX.all
   reverse = TX.reverse
   takeWhile = TX.takeWhile
-
-
-
-data Chunk a = Chunk { chunkSize :: {-# UNPACK #-} !Int
-                     , _fromChunk :: {-# UNPACK #-} !a
-                     } deriving (Show, Eq, Typeable)
