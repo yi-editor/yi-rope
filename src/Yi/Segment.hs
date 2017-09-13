@@ -10,7 +10,7 @@ import qualified Data.Text as TX
 import Data.Typeable
 import qualified Data.FingerTree as T
 
-class Segmented t where
+class (Monoid t) => Segmented t where
   type Segment t
   length :: t -> Int
   null :: t -> Bool
@@ -28,6 +28,12 @@ class Segmented t where
   all :: (Segment t -> Bool) -> t -> Bool
   reverse :: t -> t
   takeWhile :: (Segment t -> Bool) -> t -> t
+  dropWhile :: (Segment t -> Bool) -> t -> t
+  dropWhileEnd :: (Segment t -> Bool) -> t -> t
+  concat :: [t] -> t
+  split :: (Segment t -> Bool) -> t -> [t]
+  chunksOf :: Int -> t -> [t]
+  snoc :: t -> Segment t -> t
 
 instance Segmented TX.Text where
   type Segment TX.Text = Char
@@ -45,3 +51,9 @@ instance Segmented TX.Text where
   all = TX.all
   reverse = TX.reverse
   takeWhile = TX.takeWhile
+  dropWhile = TX.dropWhile
+  dropWhileEnd = TX.dropWhileEnd
+  concat = TX.concat
+  split = TX.split
+  chunksOf = TX.chunksOf
+  snoc = TX.snoc

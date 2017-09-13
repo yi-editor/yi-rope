@@ -10,6 +10,7 @@
 {-# language TypeFamilies #-}
 {-# language UndecidableInstances #-}
 {-# language StandaloneDeriving #-}
+{-# language ConstraintKinds #-}
 {-# options_haddock show-extensions #-}
 
 -- |
@@ -89,11 +90,19 @@ import           Prelude hiding (drop)
 
 import qualified Yi.Segment as S
 
+type ValidRope a = (T.Measured (Meas a) (Chunk a), S.Segmented a, HasSize (Meas a))
+
 class MSeg t where
   type Meas t
 
 instance MSeg TX.Text where
   type Meas TX.Text = Size
+
+class HasSize a where
+  getSize :: a -> Int
+
+instance HasSize Size where
+  getSize = charIndex
 
 
 -- | Used to cache the size of the strings.
@@ -109,15 +118,15 @@ data Size = Indices { charIndex :: {-# UNPACK #-} !Int
 -- the use of this is
 --
 -- > mkChunk 'TX.Text.length' someText
-mkChunk :: (TX.Text -> Int) -- ^ The length function to use.
-        -> TX.Text
-        -> Chunk TX.Text
+mkChunk :: (a -> Int) -- ^ The length function to use.
+        -> a
+        -> Chunk a
 mkChunk l t = Chunk (l t) t
 
 -- | Transform the chunk content. It's vital that the transformation
 -- preserves the length of the content.
-overChunk :: (TX.Text -> TX.Text) -- ^ Length-preserving content transformation.
-          -> Chunk TX.Text -> Chunk TX.Text
+overChunk :: (a -> a) -- ^ Length-preserving content transformation.
+          -> Chunk a -> Chunk a
 overChunk f (Chunk l t) = Chunk l (f t)
 
 -- | Counts number of newlines in the given 'TX.Text'.
@@ -142,7 +151,7 @@ instance (T.Measured (Meas a) (Chunk a)) => Monoid (Rope a) where
   mempty = Rope mempty
   Rope a `mappend` Rope b = Rope (a `mappend` b)
 
-instance Ord (Rope TX.Text) where
+instance (Eq a, Ord a, ValidRope a) => Ord (Rope a) where
   compare x y = toText x `compare` toText y
 
 data Chunk a = Chunk { chunkSize :: {-# UNPACK #-} !Int
@@ -160,7 +169,7 @@ data Chunk a = Chunk { chunkSize :: {-# UNPACK #-} !Int
 -- The derived Eq implementation for the underlying tree only passes
 -- the equality check if the chunks are the same too which is not what
 -- we want.
-instance (Eq TX.Text) => Eq (Rope TX.Text) where
+instance (ValidRope a, Eq a) => Eq (Rope a) where
   t == t' = Yi.Rope.length t == Yi.Rope.length t' && toText t == toText t'
 
 instance NFData Size where
@@ -175,11 +184,11 @@ instance NFData (Rope TX.Text) where
 instance IsString (Rope TX.Text) where
   fromString = Yi.Rope.fromString
 
-(-|) :: (Chunk TX.Text) -> FingerTree (Meas TX.Text) (Chunk TX.Text) -> FingerTree (Meas TX.Text) (Chunk TX.Text)
+(-|) :: (ValidRope a) => (Chunk a) -> FingerTree (Meas a) (Chunk a) -> FingerTree (Meas a) (Chunk a)
 b -| t | chunkSize b == 0 = t
        | otherwise        = b <| t
 
-(|-) :: FingerTree (Meas TX.Text) (Chunk TX.Text) -> (Chunk TX.Text) -> FingerTree (Meas TX.Text) (Chunk TX.Text)
+(|-) :: (ValidRope a) => FingerTree (Meas a) (Chunk a) -> (Chunk a) -> FingerTree (Meas a) (Chunk a)
 t |- b | chunkSize b == 0 = t
        | otherwise        = t |> b
 
@@ -227,36 +236,36 @@ toReverseString = TX.unpack . toReverseText
 -- | This is like 'fromText' but it allows the user to specify the
 -- chunk size to be used. Uses 'defaultChunkSize' if the given
 -- size is <= 0.
-fromText' :: Int -> TX.Text -> Rope TX.Text
+fromText' :: forall a. (ValidRope a) => Int -> a -> Rope a
 fromText' n | n <= 0 = fromText' defaultChunkSize
             | otherwise = Rope . r T.empty . f
   where
-    f = TX.chunksOf n
+    f = S.chunksOf n
 
     -- Convert the given string into chunks in the tree. We have a
     -- special case for a single element case: because we split on
     -- predetermined chunk size, we know that all chunks but the last
     -- one will be the specified size so we can optimise here instead
     -- of having to recompute chunk size at creation.
-    r :: FingerTree Size (Chunk TX.Text) -> [TX.Text] -> FingerTree Size (Chunk TX.Text)
+    r :: FingerTree (Meas a) (Chunk a) -> [a] -> FingerTree (Meas a) (Chunk a)
     r !tr []     = tr
-    r !tr (t:[]) = tr |- mkChunk TX.length t
+    r !tr (t:[]) = tr |- mkChunk S.length t
     r !tr (t:ts) = let r' = tr |- mkChunk (const n) t
                    in r r' ts
 
 -- | Converts a 'TX.Text' into a 'YiString' using
 -- 'defaultChunkSize'-sized chunks for the underlying tree.
-fromText :: TX.Text -> Rope TX.Text
+fromText :: (ValidRope a) => a -> Rope a
 fromText = fromText' defaultChunkSize
 
 fromLazyText :: TXL.Text -> Rope TX.Text
 fromLazyText = Rope . T.fromList . fmap (mkChunk TX.length) . TXL.toChunks
 
 -- | Consider whether you really need to use this!
-toText :: Rope TX.Text -> TX.Text
-toText = TX.concat . go . fromRope
+toText :: (ValidRope a) => Rope a -> a
+toText = S.concat . go . fromRope
   where
-    go :: FingerTree Size (Chunk TX.Text) -> [TX.Text]
+    go :: (T.Measured (Meas a) (Chunk a)) => FingerTree (Meas a) (Chunk a) -> [a]
     go t = case viewl t of
       Chunk _ !c :< cs -> c : go cs
       EmptyL -> []
@@ -267,22 +276,22 @@ toText = TX.concat . go . fromRope
 -- the tree from the end, 'TX.reverse'ing each chunk and
 -- 'TX.concat'ing, at least with -O2 which you really need to be using
 -- with 'TX.Text' anyway.
-toReverseText :: Rope TX.Text -> TX.Text
-toReverseText = TX.reverse . toText
+toReverseText :: (ValidRope a) => Rope a -> a
+toReverseText = S.reverse . toText
 
 -- | Checks if the given 'YiString' is actually empty.
-null :: Rope TX.Text -> Bool
+null :: (ValidRope a) => Rope a -> Bool
 null = T.null . fromRope
 
 -- | Creates an empty 'YiString'.
-empty :: Rope TX.Text
+empty :: (ValidRope a) => Rope a
 empty = Rope T.empty
 
 -- | Length of the whole underlying string.
 --
 -- Amortized constant time.
-length :: Rope TX.Text -> Int
-length = charIndex . measure . fromRope
+length :: (ValidRope a) => Rope a -> Int
+length = getSize . measure . fromRope
 
 -- | Count the number of newlines in the underlying string. This is
 -- actually amortized constant time as we cache this information in
@@ -301,7 +310,7 @@ countNewLines = lineIndex . measure . fromRope
 --
 -- I suspect that this pays for itself as we'd spend more time
 -- computing over all the little chunks than few large ones anyway.
-append :: Rope TX.Text -> Rope TX.Text -> Rope TX.Text
+append :: (ValidRope a) => Rope a -> Rope a -> Rope a
 append (Rope t) (Rope t') = case (viewr t, viewl t') of
   (EmptyR, _) -> Rope t'
   (_, EmptyL) -> Rope t
@@ -311,7 +320,7 @@ append (Rope t) (Rope t') = case (viewr t, viewl t') of
       _ -> Rope (ts |- Chunk len (x <> x') <> ts')
 
 -- | Concat a list of 'YiString's.
-concat :: [Rope TX.Text] -> Rope TX.Text
+concat :: (ValidRope a) => [Rope a] -> Rope a
 concat = L.foldl' append empty
 
 -- | Take the first character of the underlying string if possible.
@@ -321,26 +330,26 @@ head (Rope t) = case viewl t of
   Chunk _ x :< _ -> if S.null x then Nothing else Just (S.head x)
 
 -- | Take the last character of the underlying string if possible.
-last :: Rope TX.Text -> Maybe Char
+last :: (ValidRope a) => Rope a -> Maybe (S.Segment a)
 last (Rope t) = case viewr t of
   EmptyR -> Nothing
-  _ :> Chunk _ x -> if TX.null x then Nothing else Just (TX.last x)
+  _ :> Chunk _ x -> if S.null x then Nothing else Just (S.last x)
 
 -- | Takes every character but the last one: returns Nothing on empty
 -- string.
-init :: Rope TX.Text -> Maybe (Rope TX.Text)
+init :: (ValidRope a) => Rope a -> Maybe (Rope a)
 init (Rope t) = case viewr t of
   EmptyR -> Nothing
   ts :> Chunk 0 _ -> Yi.Rope.init (Rope ts)
-  ts :> Chunk l x -> Just . Rope $ ts |- Chunk (l - 1) (TX.init x)
+  ts :> Chunk l x -> Just . Rope $ ts |- Chunk (l - 1) (S.init x)
 
 -- | Takes the tail of the underlying string. If the string is empty
 -- to begin with, returns Nothing.
-tail :: Rope TX.Text -> Maybe (Rope TX.Text)
+tail :: (ValidRope a) => Rope a -> Maybe (Rope a)
 tail (Rope t) = case viewl t of
   EmptyL -> Nothing
   Chunk 0 _ :< ts -> Yi.Rope.tail (Rope ts)
-  Chunk l x :< ts -> Just . Rope $ Chunk (l - 1) (TX.tail x) -| ts
+  Chunk l x :< ts -> Just . Rope $ Chunk (l - 1) (S.tail x) -| ts
 
 -- | Splits the string at given character position.
 --
@@ -362,7 +371,7 @@ tail (Rope t) = case viewl t of
 -- cons and one cons of a chunk and lastly the cost of 'T.splitAt' of
 -- the underlying 'TX.Text'. It turns out to be fairly fast all
 -- together.
-splitAt :: Int -> Rope TX.Text -> (Rope TX.Text, Rope TX.Text)
+splitAt :: (ValidRope a) => Int -> Rope a -> (Rope a, Rope a)
 splitAt n (Rope t)
   | n <= 0 = (mempty, Rope t)
   | otherwise = case viewl s of
@@ -372,35 +381,35 @@ splitAt n (Rope t)
           Rope $ Chunk (l - n') rx -| ts)
     _ -> (Rope f, Rope s)
   where
-    (f, s) = T.split ((> n) . charIndex) t
-    n' = n - charIndex (measure f)
+    (f, s) = T.split ((> n) . getSize) t
+    n' = n - getSize (measure f)
 
 -- | Takes the first n given characters.
-take :: Int -> Rope TX.Text -> Rope TX.Text
+take :: (ValidRope a) => Int -> Rope a -> Rope a
 take 1 = maybe mempty Yi.Rope.singleton . Yi.Rope.head
 take n = fst . Yi.Rope.splitAt n
 
 -- | Drops the first n characters.
-drop :: Int -> Rope TX.Text -> Rope TX.Text
+drop :: (ValidRope a) => Int -> Rope a -> Rope a
 drop 1 = fromMaybe mempty . Yi.Rope.tail
 drop n = snd . Yi.Rope.splitAt n
 
 -- | The usual 'Prelude.dropWhile' optimised for 'YiString's.
-dropWhile :: (S.Segment TX.Text -> Bool) -> Rope TX.Text -> Rope TX.Text
+dropWhile :: (ValidRope a) => (S.Segment a -> Bool) -> Rope a -> Rope a
 dropWhile p = Rope . go . fromRope
   where
     go t = case viewl t of
       EmptyL -> T.empty
       Chunk 0 _ :< ts -> go ts
       Chunk l x :< ts ->
-        let r = TX.dropWhile p x
-            l' = TX.length r
+        let r = S.dropWhile p x
+            l' = S.length r
         in case compare l' l of
           -- We dropped nothing so we must be done.
           EQ -> t
           -- We dropped something, if it was everything then drop from
           -- next chunk.
-          LT | TX.null r -> go ts
+          LT | S.null r -> go ts
           -- It wasn't everything and we have left-overs, we must be done.
              | otherwise -> Chunk l' r <| ts
           -- We shouldn't really get here or it would mean that
@@ -412,23 +421,23 @@ dropWhile p = Rope . go . fromRope
           _ -> Chunk l' r -| ts
 
 -- | As 'Yi.Rope.dropWhile' but drops from the end instead.
-dropWhileEnd :: (Char -> Bool) -> Rope TX.Text -> Rope TX.Text
+dropWhileEnd :: (ValidRope a) => (S.Segment a -> Bool) -> Rope a -> Rope a
 dropWhileEnd p = Rope . go . fromRope
   where
     go t = case viewr t of
       EmptyR -> T.empty
       ts :> Chunk 0 _ -> go ts
       ts :> Chunk l x ->
-        let r = TX.dropWhileEnd p x
-            l' = TX.length r
+        let r = S.dropWhileEnd p x
+            l' = S.length r
         in case compare l' l of
           EQ -> t
-          LT | TX.null r -> go ts
+          LT | S.null r -> go ts
              | otherwise -> ts |> Chunk l' r
           _ -> ts |- Chunk l' r
 
 -- | The usual 'Prelude.takeWhile' optimised for 'YiString's.
-takeWhile :: (S.Segment TX.Text -> Bool) -> Rope TX.Text -> Rope TX.Text
+takeWhile :: (ValidRope a) => (S.Segment a -> Bool) -> Rope a -> Rope a
 takeWhile p = Rope . go . fromRope
   where
     go t = case viewl t of
@@ -448,7 +457,7 @@ takeWhile p = Rope . go . fromRope
           _ -> T.singleton $ Chunk l' r
 
 -- | Like 'Yi.Rope.takeWhile' but takes from the end instead.
-takeWhileEnd :: (S.Segment TX.Text -> Bool) -> Rope TX.Text -> Rope TX.Text
+takeWhileEnd :: (ValidRope a) => (S.Segment a -> Bool) -> Rope a -> Rope a
 takeWhileEnd p = Rope . go . fromRope
   where
     go t = case viewr t of
@@ -459,7 +468,7 @@ takeWhileEnd p = Rope . go . fromRope
         _ -> T.singleton $ Chunk l' r
         where
           -- no TX.takeWhileEnd – https://github.com/bos/text/issues/89
-          r = TX.reverse . TX.takeWhile p . TX.reverse $ x
+          r = S.reverse . S.takeWhile p . S.reverse $ x
           l' = S.length r
 
 
@@ -469,7 +478,7 @@ takeWhileEnd p = Rope . go . fromRope
 --
 -- This implementation uses 'Yi.Rope.splitAt' which actually is just
 -- as fast as hand-unrolling the tree. GHC sure is great!
-span :: (S.Segment TX.Text -> Bool) -> Rope TX.Text -> (Rope TX.Text, Rope TX.Text)
+span :: (ValidRope a) => (S.Segment a -> Bool) -> Rope a -> (Rope a, Rope a)
 span p y = let x = Yi.Rope.takeWhile p y
            in case Yi.Rope.splitAt (Yi.Rope.length x) y of
              -- Re-using ‘x’ seems to gain us a minor performance
@@ -477,7 +486,7 @@ span p y = let x = Yi.Rope.takeWhile p y
              (_, y') -> (x, y')
 
 -- | Just like 'Yi.Rope.span' but with the predicate negated.
-break :: (S.Segment TX.Text -> Bool) -> Rope TX.Text -> (Rope TX.Text, Rope TX.Text)
+break :: (ValidRope a) => (S.Segment a -> Bool) -> Rope a -> (Rope a, Rope a)
 break p = Yi.Rope.span (not . p)
 
 -- | Concatenates the list of 'YiString's after inserting the
@@ -487,7 +496,7 @@ break p = Yi.Rope.span (not . p)
 -- length 1. If you don't want this, it's up to you to pre-process the
 -- list. Just as with 'Yi.Rope.intersperse', it is up to the user to
 -- pre-process the list.
-intercalate :: Rope TX.Text -> [Rope TX.Text] -> Rope TX.Text
+intercalate :: (ValidRope a) => Rope a -> [Rope a] -> Rope a
 intercalate _ [] = mempty
 intercalate (Rope t') (Rope s:ss) = Rope $ go s ss
   where
@@ -507,7 +516,7 @@ intercalate (Rope t') (Rope s:ss) = Rope $ go s ss
 -- 'Yi.Rope.intercalate'. Note that what this does __not__ do is
 -- intersperse characters into the underlying text, you should convert
 -- and use 'TX.intersperse' for that instead.
-intersperse :: S.Segment TX.Text -> [Rope TX.Text] -> Rope TX.Text
+intersperse :: (ValidRope a) => S.Segment a -> [Rope a] -> Rope a
 intersperse _ [] = mempty
 intersperse c (t:ts) = go t ts
   where
@@ -515,17 +524,17 @@ intersperse c (t:ts) = go t ts
     go acc (t':ts') = go (acc <> (c `cons` t')) ts'
 
 -- | Add a 'Char' in front of a 'YiString'.
-cons :: S.Segment TX.Text -> Rope TX.Text -> Rope TX.Text
+cons :: (ValidRope a) => S.Segment a -> Rope a -> Rope a
 cons c (Rope t) = case viewl t of
   EmptyL -> Yi.Rope.singleton c
   Chunk l x :< ts | l < defaultChunkSize -> Rope $ Chunk (l + 1) (c `S.cons` x) <| ts
   _ -> Rope $ Chunk 1 (S.singleton c) <| t
 
 -- | Add a 'Char' in the back of a 'YiString'.
-snoc :: Rope TX.Text -> S.Segment TX.Text -> Rope TX.Text
+snoc :: (ValidRope a) => Rope a -> S.Segment a -> Rope a
 snoc (Rope t) c = case viewr t of
   EmptyR -> Yi.Rope.singleton c
-  ts :> Chunk l x | l < defaultChunkSize -> Rope $ ts |> Chunk (l + 1) (x `TX.snoc` c)
+  ts :> Chunk l x | l < defaultChunkSize -> Rope $ ts |> Chunk (l + 1) (x `S.snoc` c)
   _ -> Rope $ t |> Chunk 1 (S.singleton c)
 
 -- | Single character 'YiString'. Consider whether it's worth creating
@@ -631,7 +640,7 @@ unlines = Yi.Rope.intersperse '\n'
 -- Implementation note: this currently just does any by doing ‘TX.Text’
 -- conversions upon consecutive chunks. We should be able to speed it
 -- up by running it in parallel over multiple chunks.
-any :: (S.Segment TX.Text -> Bool) -> Rope TX.Text -> Bool
+any :: (ValidRope a) => (S.Segment a -> Bool) -> Rope a -> Bool
 any p = go . fromRope
   where
     go x = case viewl x of
@@ -641,7 +650,7 @@ any p = go . fromRope
 -- | 'YiString' specialised @all@.
 --
 -- See the implementation note for 'Yi.Rope.any'.
-all :: (S.Segment TX.Text -> Bool) -> Rope TX.Text -> Bool
+all :: (ValidRope a) => (S.Segment a -> Bool) -> Rope a -> Bool
 all p = go . fromRope
   where
     go x = case viewl x of
@@ -726,8 +735,8 @@ words = Prelude.filter (not . Yi.Rope.null) . Yi.Rope.split isSpace
 -- about as fast and in cases with lots of splits, faster, as a
 -- hand-rolled version on chunks with appends which is quite amazing
 -- in itself.
-split :: (Char -> Bool) -> Rope TX.Text -> [Rope TX.Text]
-split p = fmap fromText . TX.split p . toText
+split :: (ValidRope a) => (S.Segment a -> Bool) -> Rope a -> [Rope a]
+split p = fmap fromText . S.split p . toText
 
 -- | Left fold.
 --
