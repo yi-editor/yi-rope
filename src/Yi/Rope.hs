@@ -601,7 +601,7 @@ splitByKeepingDelim x =
     fmap fromText . fix go x . toText
   where
     go :: (Char -> TX.Text -> [TX.Text]) -> Char -> TX.Text -> [TX.Text]
-    go _ c (TX.span (/=c) -> (_, TX.null -> True)) = []
+    go _ c (TX.span (/=c) -> (a, TX.null -> True)) = [a]
     go f c (TX.span (/=c) -> (a,b)) = a `TX.snoc` c : f c (TX.tail b)
 
 -- | Joins up lines by a newline character. It does not leave a
