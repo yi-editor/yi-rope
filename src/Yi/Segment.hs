@@ -2,16 +2,12 @@
 {-# language FlexibleContexts #-}
 {-# language GeneralizedNewtypeDeriving #-}
 {-# language StandaloneDeriving #-}
-{-# language UndecidableInstances #-}
 {-# language GADTs #-}
 module Yi.Segment where
 
 import qualified Data.Text as TX
-import Data.Typeable
-import qualified Data.FingerTree as T
 
-class MSeg t where
-  type Meas t
+type family MeasureOf t :: *
 
 class (Monoid t) => Segmented t where
   type Segment t

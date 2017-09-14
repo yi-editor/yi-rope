@@ -9,7 +9,6 @@
 {-# language FlexibleInstances #-}
 {-# language TypeFamilies #-}
 {-# language UndecidableInstances #-}
-{-# language StandaloneDeriving #-}
 {-# language ConstraintKinds #-}
 {-# options_haddock show-extensions #-}
 
@@ -39,6 +38,7 @@ module Yi.Braid
   , (Yi.Braid.-|)
   , (Yi.Braid.|-)
   , Yi.Braid.reverse
+  , Yi.Braid.toReversed
   , Yi.Braid.toBraid
   , Yi.Braid.toBraid'
   , Yi.Braid.extractBraid
@@ -78,27 +78,16 @@ module Yi.Braid
   ) where
 
 import           Control.DeepSeq
-import           Control.Exception (try)
-import           Data.Binary
-import qualified Data.ByteString.Lazy as BSL
-import           Data.Char (isSpace)
 import qualified Data.FingerTree as T
 import           Data.FingerTree hiding (null, empty, reverse, split)
 import qualified Data.List as L (foldl')
 import           Data.Maybe
 import           Data.Monoid
-import           Data.String (IsString(..))
-import qualified Data.Text as TX
-import qualified Data.Text.Encoding.Error as TXEE
-import qualified Data.Text.Lazy as TXL
-import qualified Data.Text.Lazy.Encoding as TXLE
-import qualified Data.Text.IO as TXIO (writeFile)
 import           Data.Typeable
-import           Prelude hiding (drop)
 
 import qualified Yi.Segment as S
 
-type ValidBraid a = (T.Measured (S.Meas a) (Chunk a), S.Segmented a, HasSize (S.Meas a))
+type ValidBraid a = (T.Measured (S.MeasureOf a) (Chunk a), S.Segmented a, HasSize (S.MeasureOf a))
 
 class HasSize a where
   getSize :: a -> Int
@@ -121,9 +110,8 @@ overChunk :: (a -> a) -- ^ Length-preserving content transformation.
           -> Chunk a -> Chunk a
 overChunk f (Chunk l t) = Chunk l (f t)
 
-newtype Braid a = Braid { fromBraid :: T.FingerTree (S.Meas a) (Chunk a) }
-                      deriving (Typeable)
-deriving instance (Show a) => Show (Braid a)
+newtype Braid a = Braid { fromBraid :: T.FingerTree (S.MeasureOf a) (Chunk a) }
+  deriving (Show, Typeable)
 
 instance (ValidBraid a) => Monoid (Braid a) where
   mempty = Yi.Braid.empty
@@ -168,11 +156,11 @@ instance (NFData a) => NFData (Chunk a) where
 instance (NFData a, ValidBraid a) => NFData (Braid a) where
   rnf = rnf . extractBraid
 
-(-|) :: (ValidBraid a) => (Chunk a) -> FingerTree (S.Meas a) (Chunk a) -> FingerTree (S.Meas a) (Chunk a)
+(-|) :: (ValidBraid a) => (Chunk a) -> FingerTree (S.MeasureOf a) (Chunk a) -> FingerTree (S.MeasureOf a) (Chunk a)
 b -| t | chunkSize b == 0 = t
        | otherwise        = b <| t
 
-(|-) :: (ValidBraid a) => FingerTree (S.Meas a) (Chunk a) -> (Chunk a) -> FingerTree (S.Meas a) (Chunk a)
+(|-) :: (ValidBraid a) => FingerTree (S.MeasureOf a) (Chunk a) -> (Chunk a) -> FingerTree (S.MeasureOf a) (Chunk a)
 t |- b | chunkSize b == 0 = t
        | otherwise        = t |> b
 
@@ -211,7 +199,7 @@ toBraid' n | n <= 0 = toBraid' defaultChunkSize
     -- predetermined chunk size, we know that all chunks but the last
     -- one will be the specified size so we can optimise here instead
     -- of having to recompute chunk size at creation.
-    r :: FingerTree (S.Meas a) (Chunk a) -> [a] -> FingerTree (S.Meas a) (Chunk a)
+    r :: FingerTree (S.MeasureOf a) (Chunk a) -> [a] -> FingerTree (S.MeasureOf a) (Chunk a)
     r !tr []     = tr
     r !tr (t:[]) = tr |- mkChunk S.length t
     r !tr (t:ts) = let r' = tr |- mkChunk (const n) t
@@ -226,7 +214,7 @@ toBraid = toBraid' defaultChunkSize
 extractBraid :: (ValidBraid a) => Braid a -> a
 extractBraid = S.concat . go . fromBraid
   where
-    go :: (T.Measured (S.Meas a) (Chunk a)) => FingerTree (S.Meas a) (Chunk a) -> [a]
+    go :: (T.Measured (S.MeasureOf a) (Chunk a)) => FingerTree (S.MeasureOf a) (Chunk a) -> [a]
     go t = case viewl t of
       Chunk _ !c :< cs -> c : go cs
       EmptyL -> []
@@ -279,7 +267,7 @@ concat :: (ValidBraid a) => [Braid a] -> Braid a
 concat = L.foldl' append empty
 
 -- | Take the first character of the underlying string if possible.
-head :: (S.Segmented a, T.Measured (S.Meas a) (Chunk a)) => Braid a -> Maybe (S.Segment a)
+head :: (S.Segmented a, T.Measured (S.MeasureOf a) (Chunk a)) => Braid a -> Maybe (S.Segment a)
 head (Braid t) = case viewl t of
   EmptyL -> Nothing
   Chunk _ x :< _ -> if S.null x then Nothing else Just (S.head x)
@@ -494,7 +482,7 @@ snoc (Braid t) c = case viewr t of
 
 -- | Single character 'YiString'. Consider whether it's worth creating
 -- this, maybe you can use 'cons' or 'snoc' instead?
-singleton :: (Measured (S.Meas a) (Chunk a), S.Segmented a) => S.Segment a -> Braid a
+singleton :: (Measured (S.MeasureOf a) (Chunk a), S.Segmented a) => S.Segment a -> Braid a
 singleton c = Braid . T.singleton $ Chunk 1 (S.singleton c)
 
 -- | 'YiString' specialised @any@.
@@ -604,7 +592,7 @@ withChunk f = Braid . T.fmap' (mkChunk S.length . f . _fromChunk) . fromBraid
 -- really badly. You should not need to use this.
 --
 -- Also see 'T.unsafeFmap'
-unsafeWithChunk :: (TX.Text -> TX.Text) -> Braid TX.Text -> Braid TX.Text
+unsafeWithChunk :: (ValidBraid a) => (a -> a) -> Braid a -> Braid a
 unsafeWithChunk f = Braid . T.unsafeFmap g . fromBraid
   where
     g (Chunk l t) = Chunk l (f t)

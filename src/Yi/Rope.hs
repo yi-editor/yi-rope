@@ -72,7 +72,6 @@ import qualified Data.ByteString.Lazy as BSL
 import           Data.Char (isSpace)
 import qualified Data.FingerTree as T
 import           Data.FingerTree hiding (null, empty, reverse, split)
-import qualified Data.List as L (foldl')
 import           Data.Maybe
 import           Data.Monoid
 import           Data.String (IsString(..))
@@ -94,9 +93,6 @@ data Size = Indices { charIndex :: {-# UNPACK #-} !Int
                       -- ^ How many lines under here?
                     } deriving (Eq, Show, Typeable)
 
-instance S.MSeg TX.Text where
-  type Meas TX.Text = Size
-
 instance B.HasSize Size where
   getSize = charIndex
 
@@ -115,12 +111,6 @@ mkChunk :: (TX.Text -> Int) -- ^ The length function to use.
         -> YiChunk
 mkChunk = B.mkChunk
 
--- | Transform the chunk content. It's vital that the transformation
--- preserves the length of the content.
-overChunk :: (TX.Text -> TX.Text) -- ^ Length-preserving content transformation.
-          -> YiChunk -> YiChunk
-overChunk = B.overChunk
-
 -- | Counts number of newlines in the given 'TX.Text'.
 countNl :: TX.Text -> Int
 countNl = TX.count "\n"
@@ -136,17 +126,13 @@ instance Measured Size YiChunk where
 -- over chunks of 'TX.Text'.
 type YiString = B.Braid TX.Text
 
-fromRope :: B.Braid a -> FingerTree (S.Meas a) (B.Chunk a)
+type instance S.MeasureOf TX.Text = Size
+
+fromRope :: B.Braid a -> FingerTree (S.MeasureOf a) (B.Chunk a)
 fromRope = B.fromBraid
 
 instance NFData Size where
   rnf (Indices !c !l) = c `seq` l `seq` ()
-
-instance NFData YiChunk where
-  rnf (B.Chunk !i !t) = i `seq` rnf t
-
-instance NFData YiString where
-  rnf = rnf . toText
 
 instance IsString YiString where
   fromString = Yi.Rope.fromString
@@ -156,16 +142,6 @@ instance IsString YiString where
 
 (|-) :: FingerTree Size YiChunk -> YiChunk -> FingerTree Size YiChunk
 (|-) = (B.|-)
-
--- | Default size chunk to use. Currently @1200@ as this is what
--- benchmarks suggest.
---
--- This makes the biggest difference with 'lines'-like and
--- 'concat'-like functions. Bigger chunks make 'concat' (much) faster
--- but 'lines' slower. In general it seems that we benefit more from
--- larger chunks and 1200 seems to be the sweet spot.
-defaultChunkSize :: Int
-defaultChunkSize = 1200
 
 -- | Reverse the whole underlying string.
 --
