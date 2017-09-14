@@ -5,9 +5,7 @@
 {-# language OverloadedStrings #-}
 {-# language ScopedTypeVariables #-}
 {-# language ViewPatterns #-}
-{-# language TypeSynonymInstances #-}
 {-# language FlexibleInstances #-}
-{-# language TypeFamilies #-}
 {-# options_haddock show-extensions #-}
 
 -- |
@@ -84,7 +82,6 @@ import           Data.Typeable
 import           Prelude hiding (drop)
 
 import qualified Yi.Braid as B
-import qualified Yi.Segment as S
 
 -- | Used to cache the size of the strings.
 data Size = Indices { charIndex :: {-# UNPACK #-} !Int
@@ -124,11 +121,9 @@ instance Measured Size YiChunk where
 
 -- | A 'YiString' is a 'FingerTree' with cached char and line counts
 -- over chunks of 'TX.Text'.
-type YiString = B.Braid TX.Text
+type YiString = B.Braid Size TX.Text
 
-type instance S.MeasureOf TX.Text = Size
-
-fromRope :: B.Braid a -> FingerTree (S.MeasureOf a) (B.Chunk a)
+fromRope :: B.Braid v a -> FingerTree v (B.Chunk a)
 fromRope = B.fromBraid
 
 instance NFData Size where

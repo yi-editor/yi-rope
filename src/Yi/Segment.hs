@@ -1,13 +1,7 @@
 {-# language TypeFamilies #-}
-{-# language FlexibleContexts #-}
-{-# language GeneralizedNewtypeDeriving #-}
-{-# language StandaloneDeriving #-}
-{-# language GADTs #-}
 module Yi.Segment where
 
 import qualified Data.Text as TX
-
-type family MeasureOf t :: *
 
 class (Monoid t) => Segmented t where
   type Segment t
