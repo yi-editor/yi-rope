@@ -10,6 +10,9 @@ import qualified Data.Text as TX
 import Data.Typeable
 import qualified Data.FingerTree as T
 
+class MSeg t where
+  type Meas t
+
 class (Monoid t) => Segmented t where
   type Segment t
   length :: t -> Int
@@ -34,6 +37,9 @@ class (Monoid t) => Segmented t where
   split :: (Segment t -> Bool) -> t -> [t]
   chunksOf :: Int -> t -> [t]
   snoc :: t -> Segment t -> t
+  foldl :: (a -> Segment t -> a) -> a -> t -> a
+  map :: (Segment t -> Segment t) -> t -> t
+  replicate :: Int -> t -> t
 
 instance Segmented TX.Text where
   type Segment TX.Text = Char
@@ -57,3 +63,6 @@ instance Segmented TX.Text where
   split = TX.split
   chunksOf = TX.chunksOf
   snoc = TX.snoc
+  foldl = TX.foldl'
+  map = TX.map
+  replicate = TX.replicate
