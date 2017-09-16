@@ -1,32 +1,10 @@
-# resolver: lts-8.18
-# resolver: lts-7.24
-# resolver: lts-6.27
-resolver: ghc-7.10
-
-# nix:
-  # enable: true
-  # packages:
-    # - libcxx
-    # - gcc
-    # - ncurses
+resolver: lts-8.18
+# resolver: ghc-7.10
 
 packages:
 - '.'
 
-extra-deps:
-- fingertree-0.1.1.0
-- text-1.2.2.2
-- ListLike-4.5.1
-- dlist-0.8.0.3
-- fmlist-0.9
-- utf8-string-1.0.1.1
-- vector-0.12.0.1
-- primitive-0.6.2.0
-- semigroups-0.18.3
-- hashable-1.2.6.1
-- tagged-0.8.5
-- transformers-compat-0.5.1.4
-- unordered-containers-0.2.8.0
+extra-deps: []
 
 flags: {}
 

@@ -15,6 +15,7 @@ library
 
   exposed-modules:
     Yi.Rope
+    Yi.Braid
     Yi.Rope.Internal.ListLikeHelpers
 
   build-depends:
