@@ -140,7 +140,7 @@ instance (Eq a, Ord a, ValidBraid v s a) => Ord (Braid v a) where
 -- | A chunk caches the length of the underlying chain since computing the
 -- length of the underlying chain type is not guaranteed to be efficient.
 data Chunk a = Chunk { chunkSize :: {-# UNPACK #-} !Int
-                     , _fromChunk :: {-# UNPACK #-} !a
+                     , _fromChunk :: !a
                      } deriving (Show, Eq, Typeable)
 
 instance (NFData a) => NFData (Chunk a) where
