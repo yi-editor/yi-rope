@@ -17,15 +17,10 @@
 -- Stability   :  experimental
 -- Portability :  portable
 --
--- This module defines a @rope@ data structure for use in Yi. This
--- specific implementation uses a fingertree over Text.
---
--- In contrast to our old implementation, we can now reap all the
--- benefits of Text: automatic unicode handling and blazing fast
--- implementation on underlying strings. This frees us from a lot of
--- book-keeping. We don't lose out on not using ByteString directly
--- because the old implementation encoded it into UTF8 anyway, making
--- it unsuitable for storing anything but text.
+-- This module defines a @Braid@ data structure. This is distinct from a 
+-- traditional @Rope@ in that it abstracts over the underlying segmentable
+-- type. It uses FingerTree's for efficiency and depends on the underlying
+-- type's own definitions of common segmentation operations.
 
 module Yi.Braid
   ( Braid(..)
@@ -85,60 +80,48 @@ import           Data.Typeable
 
 import qualified Yi.Segment as S
 
-type ValidBraid v a = (T.Measured v (Chunk a), S.Segmented a, HasSize v)
-
-class HasSize a where
-  getSize :: a -> Int
-
-
--- | Makes a chunk from a given string. We allow for an arbitrary
--- length function here to allow us to bypass the calculation with
--- 'const' in case the length is known ahead of time. In most cases,
--- the use of this is
---
--- > mkChunk 'TX.Text.length' someText
-mkChunk :: (a -> Int) -- ^ The length function to use.
-        -> a
-        -> Chunk a
-mkChunk l t = Chunk (l t) t
-
--- | Transform the chunk content. It's vital that the transformation
--- preserves the length of the content.
-overChunk :: (a -> a) -- ^ Length-preserving content transformation.
-          -> Chunk a -> Chunk a
-overChunk f (Chunk l t) = Chunk l (f t)
-
+-- | A @'Braid' v a@ is a 'FingerTree' over some underlying type @a@ with
+-- a 'measure' of @v@. The underlying type @a@ is referred to a @chain@ which
+-- can be split into smaller 'S.Segment's.
 newtype Braid v a = Braid { fromBraid :: T.FingerTree v (Chunk a) }
   deriving (Show, Typeable)
+
+-- | @ValidBraid :: * -> * -> Constraint@
+-- 
+-- ValidBraid is a constraint which ensures that the values used in the Braid
+-- are valid for use with FingerTrees and can be segmented.
+type ValidBraid v a = (T.Measured v (Chunk a), S.Segmented a, HasSize v)
 
 instance (ValidBraid v a) => Monoid (Braid v a) where
   mempty = Yi.Braid.empty
   mappend = Yi.Braid.append
   mconcat = Yi.Braid.concat
 
--- | Two 'YiString's are equal if their underlying text is.
---
--- Implementation note: This just uses 'TX.Text' equality as there is
--- no real opportunity for optimisation here except for a cached
--- length check first. We could unroll the trees and mess around with
--- matching prefixes but the overhead would be higher than a simple
--- conversion and relying on GHC optimisation.
---
--- The derived Eq implementation for the underlying tree only passes
--- the equality check if the chunks are the same too which is not what
--- we want.
-instance (Eq a, Ord a, ValidBraid v a) => Ord (Braid v a) where
-  compare x y = extractBraid x `compare` extractBraid y
+class HasSize a where
+  getSize :: a -> Int
 
-data Chunk a = Chunk { chunkSize :: {-# UNPACK #-} !Int
-                     , _fromChunk :: {-# UNPACK #-} !a
-                     } deriving (Show, Eq, Typeable)
 
--- | Two 'YiString's are equal if their underlying text is.
+-- | Makes a chunk from a given chain. We allow for an arbitrary
+-- length function here to allow us to bypass calculating it manually.
+-- for cases where the length is known ahead of time. An example would be:
 --
--- Implementation note: This just uses 'TX.Text' equality as there is
--- no real opportunity for optimisation here except for a cached
--- length check first. We could unroll the trees and mess around with
+-- > mkChunk 'Data.Text.length' someText
+mkChunk :: (a -> Int) -- ^ The length function to use.
+        -> a
+        -> Chunk a
+mkChunk l t = Chunk (l t) t
+
+-- | Transform the chain inside the chunk. It's vital that the transformation
+-- preserves the length of the content.
+overChunk :: (a -> a) -- ^ Length-preserving content transformation.
+          -> Chunk a -> Chunk a
+overChunk f (Chunk l t) = Chunk l (f t)
+
+-- | Two 'Braid's are equal if their underlying content is.
+--
+-- Implementation note: This uses 'extractBraid' and relies on the chain's 
+-- underlying equality check, thus it's relatively inefficient and should
+-- be avoided if possible. We could unroll the trees and mess around with
 -- matching prefixes but the overhead would be higher than a simple
 -- conversion and relying on GHC optimisation.
 --
@@ -148,31 +131,45 @@ data Chunk a = Chunk { chunkSize :: {-# UNPACK #-} !Int
 instance (ValidBraid v a, Eq a) => Eq (Braid v a) where
   t == t' = Yi.Braid.length t == Yi.Braid.length t' && extractBraid t == extractBraid t'
 
+-- | Ord is checked by using 'extractBraid' and using the underlying chain's
+-- Ord instance.
+instance (Eq a, Ord a, ValidBraid v a) => Ord (Braid v a) where
+  compare x y = extractBraid x `compare` extractBraid y
+
+-- | A chunk caches the length of the underlying chain since computing the
+-- length of the underlying chain type is not guaranteed to be efficient.
+data Chunk a = Chunk { chunkSize :: {-# UNPACK #-} !Int
+                     , _fromChunk :: {-# UNPACK #-} !a
+                     } deriving (Show, Eq, Typeable)
+
 instance (NFData a) => NFData (Chunk a) where
   rnf (Chunk !i !t) = i `seq` rnf t
 
 instance (NFData a, ValidBraid v a) => NFData (Braid v a) where
   rnf = rnf . extractBraid
 
-(-|) :: (ValidBraid v a) => (Chunk a) -> FingerTree v (Chunk a) -> FingerTree v (Chunk a)
+-- | Prepend a 'Chunk' onto a 'FingerTree'
+(-|) :: (ValidBraid v a) => Chunk a -> FingerTree v (Chunk a) -> FingerTree v (Chunk a)
 b -| t | chunkSize b == 0 = t
        | otherwise        = b <| t
 
-(|-) :: (ValidBraid v a) => FingerTree v (Chunk a) -> (Chunk a) -> FingerTree v (Chunk a)
+-- | Append a 'Chunk' onto a 'FingerTree'
+(|-) :: (ValidBraid v a) => FingerTree v (Chunk a) -> Chunk a -> FingerTree v (Chunk a)
 t |- b | chunkSize b == 0 = t
        | otherwise        = t |> b
 
 -- | Default size chunk to use. Currently @1200@ as this is what
 -- benchmarks suggest.
 --
--- This makes the biggest difference with 'lines'-like and
+-- For 'YiString' and similar chain types
+-- this makes the biggest difference with 'lines'-like and
 -- 'concat'-like functions. Bigger chunks make 'concat' (much) faster
 -- but 'lines' slower. In general it seems that we benefit more from
 -- larger chunks and 1200 seems to be the sweet spot.
 defaultChunkSize :: Int
 defaultChunkSize = 1200
 
--- | Reverse the whole underlying string.
+-- | Reverse the whole underlying chain
 --
 -- This involves reversing the order of the chunks as well as content
 -- of the chunks. We use a little optimisation here that re-uses the
@@ -183,16 +180,16 @@ defaultChunkSize = 1200
 reverse :: (ValidBraid v a) => Braid v a -> Braid v a
 reverse = Braid . fmap' (overChunk S.reverse) . T.reverse . fromBraid
 
--- | This is like 'fromText' but it allows the user to specify the
+-- | This is like 'toBraid' but it allows the user to specify the
 -- chunk size to be used. Uses 'defaultChunkSize' if the given
 -- size is <= 0.
 toBraid' :: forall v a. (ValidBraid v a) => Int -> a -> Braid v a
 toBraid' n | n <= 0 = toBraid' defaultChunkSize
-            | otherwise = Braid . r T.empty . f
+           | otherwise = Braid . r T.empty . f
   where
     f = S.chunksOf n
 
-    -- Convert the given string into chunks in the tree. We have a
+    -- Convert the given chain into chunks in the tree. We have a
     -- special case for a single element case: because we split on
     -- predetermined chunk size, we know that all chunks but the last
     -- one will be the specified size so we can optimise here instead
@@ -203,12 +200,13 @@ toBraid' n | n <= 0 = toBraid' defaultChunkSize
     r !tr (t:ts) = let r' = tr |- mkChunk (const n) t
                    in r r' ts
 
--- | Converts a 'TX.Text' into a 'YiString' using
+-- | Converts a chain of arbitrary type into a 'Braid' using
 -- 'defaultChunkSize'-sized chunks for the underlying tree.
 toBraid :: (ValidBraid v a) => a -> Braid v a
 toBraid = toBraid' defaultChunkSize
 
--- | Consider whether you really need to use this!
+-- | Extracts the entire underlying chain by deconstructing the tree.
+-- Consider whether you really need to use this, it's very inefficient.
 extractBraid :: forall v a. (ValidBraid v a) => Braid v a -> a
 extractBraid = S.concat . go . fromBraid
   where
@@ -217,30 +215,29 @@ extractBraid = S.concat . go . fromBraid
       Chunk _ !c :< cs -> c : go cs
       EmptyL -> []
 
--- | Spits out the underlying string, reversed.
+-- | Spits out the underlying chain, reversed.
 --
 -- Note that this is actually slightly faster than manually unrolling
--- the tree from the end, 'TX.reverse'ing each chunk and
--- 'TX.concat'ing, at least with -O2 which you really need to be using
--- with 'TX.Text' anyway.
+-- the tree from the end, reversing each chunk and
+-- concating, at least with -O2 which you really should be using anyway.
 toReversed :: (ValidBraid v a) => Braid v a -> a
 toReversed = S.reverse . extractBraid
 
--- | Checks if the given 'YiString' is actually empty.
+-- | Checks if the given 'Braid' is empty.
 null :: (ValidBraid v a) => Braid v a -> Bool
 null = T.null . fromBraid
 
--- | Creates an empty 'YiString'.
+-- | Creates an empty 'Braid'
 empty :: (ValidBraid v a) => Braid v a
 empty = Braid T.empty
 
--- | Length of the whole underlying string.
+-- | Length of the whole underlying chain.
 --
 -- Amortized constant time.
 length :: (ValidBraid v a) => Braid v a -> Int
 length = getSize . measure . fromBraid
 
--- | Append two 'YiString's.
+-- | Append two 'Braid's.
 --
 -- We take the extra time to optimise this append for many small
 -- insertions. With naive append of the inner fingertree with 'T.><',
@@ -260,23 +257,23 @@ append (Braid t) (Braid t') = case (viewr t, viewl t') of
       GT -> Braid (t <> t')
       _ -> Braid (ts |- Chunk len (x <> x') <> ts')
 
--- | Concat a list of 'YiString's.
+-- | Concat a list of 'Braid's.
 concat :: (ValidBraid v a) => [Braid v a] -> Braid v a
 concat = L.foldl' append empty
 
--- | Take the first character of the underlying string if possible.
+-- | Take the first 'S.Segment' of the underlying chain if possible.
 head :: (ValidBraid v a) => Braid v a -> Maybe (S.Segment a)
 head (Braid t) = case viewl t of
   EmptyL -> Nothing
   Chunk _ x :< _ -> if S.null x then Nothing else Just (S.head x)
 
--- | Take the last character of the underlying string if possible.
+-- | Take the last 'S.Segment' of the underlying chain if possible.
 last :: (ValidBraid v a) => Braid v a -> Maybe (S.Segment a)
 last (Braid t) = case viewr t of
   EmptyR -> Nothing
   _ :> Chunk _ x -> if S.null x then Nothing else Just (S.last x)
 
--- | Takes every character but the last one: returns Nothing on empty
+-- | Takes every 'S.Segment' but the last one: returns Nothing on empty
 -- string.
 init :: (ValidBraid v a) => Braid v a -> Maybe (Braid v a)
 init (Braid t) = case viewr t of
@@ -284,7 +281,7 @@ init (Braid t) = case viewr t of
   ts :> Chunk 0 _ -> Yi.Braid.init (Braid ts)
   ts :> Chunk l x -> Just . Braid $ ts |- Chunk (l - 1) (S.init x)
 
--- | Takes the tail of the underlying string. If the string is empty
+-- | Takes the tail of the underlying chain. If the string is empty
 -- to begin with, returns Nothing.
 tail :: (ValidBraid v a) => Braid v a -> Maybe (Braid v a)
 tail (Braid t) = case viewl t of
@@ -292,25 +289,25 @@ tail (Braid t) = case viewl t of
   Chunk 0 _ :< ts -> Yi.Braid.tail (Braid ts)
   Chunk l x :< ts -> Just . Braid $ Chunk (l - 1) (S.tail x) -| ts
 
--- | Splits the string at given character position.
+-- | Splits the 'Braid' at given number of 'S.Segment's.
 --
--- If @position <= 0@ then the left string is empty and the right string
+-- If @position <= 0@ then the left 'Braid' is empty and the right string
 -- contains everything else.
 --
--- If @position >= length of the string@ then the left string contains
--- everything and the right string is empty.
+-- If @position >= length of the 'Braid'@ then the left 'Braid' contains
+-- everything and the right 'Braid' is empty.
 --
 -- Implementation note: the way this works is by splitting the
 -- underlying finger at a closest chunk that goes *over* the given
 -- position (see 'T.split'). This either results in a perfect split at
 -- which point we're done or more commonly, it leaves as few
--- characters short and we need to take few characters from the first
+-- 'S.Segment's short and we need to take few 'S.Segment's from the first
 -- chunk of the right side of the split. We do precisely that.
 --
 -- All together, this split is only as expensive as underlying
 -- 'T.split', the cost of splitting a chunk into two, the cost of one
 -- cons and one cons of a chunk and lastly the cost of 'T.splitAt' of
--- the underlying 'TX.Text'. It turns out to be fairly fast all
+-- the underlying chain type. It turns out to be fairly fast all
 -- together.
 splitAt :: (ValidBraid v a) => Int -> Braid v a -> (Braid v a, Braid v a)
 splitAt n (Braid t)
@@ -325,17 +322,17 @@ splitAt n (Braid t)
     (f, s) = T.split ((> n) . getSize) t
     n' = n - getSize (measure f)
 
--- | Takes the first n given characters.
+-- | Takes the first n given 'S.Segment's
 take :: (ValidBraid v a) => Int -> Braid v a -> Braid v a
 take 1 = maybe mempty Yi.Braid.singleton . Yi.Braid.head
 take n = fst . Yi.Braid.splitAt n
 
--- | Drops the first n characters.
+-- | Drops the first n 'S.Segment's.
 drop :: (ValidBraid v a) => Int -> Braid v a -> Braid v a
 drop 1 = fromMaybe mempty . Yi.Braid.tail
 drop n = snd . Yi.Braid.splitAt n
 
--- | The usual 'Prelude.dropWhile' optimised for 'YiString's.
+-- | The usual 'Prelude.dropWhile' optimised for 'Braid's.
 dropWhile :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> Braid v a
 dropWhile p = Braid . go . fromBraid
   where
@@ -377,7 +374,7 @@ dropWhileEnd p = Braid . go . fromBraid
              | otherwise -> ts |> Chunk l' r
           _ -> ts |- Chunk l' r
 
--- | The usual 'Prelude.takeWhile' optimised for 'YiString's.
+-- | The usual 'Prelude.takeWhile' optimised for 'Braid's.
 takeWhile :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> Braid v a
 takeWhile p = Braid . go . fromBraid
   where
@@ -415,7 +412,7 @@ takeWhileEnd p = Braid . go . fromBraid
 
 -- | Returns a pair whose first element is the longest prefix
 -- (possibly empty) of t of elements that satisfy p, and whose second
--- is the remainder of the string. See also 'TX.span'.
+-- is the remainder of the string. See also 'Data.Text.span'.
 --
 -- This implementation uses 'Yi.Braid.splitAt' which actually is just
 -- as fast as hand-unrolling the tree. GHC sure is great!
@@ -430,10 +427,10 @@ span p y = let x = Yi.Braid.takeWhile p y
 break :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> (Braid v a, Braid v a)
 break p = Yi.Braid.span (not . p)
 
--- | Concatenates the list of 'YiString's after inserting the
--- user-provided 'YiString' between the elements.
+-- | Concatenates the list of 'Braid's after inserting the
+-- user-provided 'Braid' between the elements.
 --
--- Empty 'YiString's are not ignored and will end up as strings of
+-- Empty 'Braid's are not ignored and will end up as 'Braid's of
 -- length 1. If you don't want this, it's up to you to pre-process the
 -- list. Just as with 'Yi.Braid.intersperse', it is up to the user to
 -- pre-process the list.
@@ -444,19 +441,18 @@ intercalate (Braid t') (Braid s:ss) = Braid $ go s ss
     go !acc []                = acc
     go acc (Braid t : ts') = go (acc >< t' >< t) ts'
 
--- | Intersperses the given character between the 'YiString's. This is
--- useful when you have a bunch of strings you just want to separate
--- something with, comma or a dash. Note that it only inserts the
--- character between the elements.
+-- | Intersperses the given 'S.Segment' between the 'Braid's. This is
+-- useful when you have a bunch of 'Braid's you just want to separate
+-- with something.
 --
--- What's more, the result is a single 'YiString'. You can easily
+-- What's more, the result is a single 'Braid'. You can easily
 -- achieve a version that blindly inserts elements to the back by
 -- mapping over the list instead of using this function.
 --
 -- You can think of it as a specialised version of
 -- 'Yi.Braid.intercalate'. Note that what this does __not__ do is
--- intersperse characters into the underlying text, you should convert
--- and use 'TX.intersperse' for that instead.
+-- intersperse 'S.Segment's into the underlying chain, you should convert
+-- and use your type's underlying intersperse for that instead.
 intersperse :: (ValidBraid v a) => S.Segment a -> [Braid v a] -> Braid v a
 intersperse _ [] = mempty
 intersperse c (t:ts) = go t ts
@@ -464,29 +460,30 @@ intersperse c (t:ts) = go t ts
     go !acc [] = acc
     go acc (t':ts') = go (acc <> (c `cons` t')) ts'
 
--- | Add a 'Char' in front of a 'YiString'.
+-- | Add a 'S.Segment' in front of a 'Braid'.
 cons :: (ValidBraid v a) => S.Segment a -> Braid v a -> Braid v a
 cons c (Braid t) = case viewl t of
   EmptyL -> Yi.Braid.singleton c
   Chunk l x :< ts | l < defaultChunkSize -> Braid $ Chunk (l + 1) (c `S.cons` x) <| ts
   _ -> Braid $ Chunk 1 (S.singleton c) <| t
 
--- | Add a 'Char' in the back of a 'YiString'.
+-- | Add a 'S.Segment' in the back of a 'Braid'.
 snoc :: (ValidBraid v a) => Braid v a -> S.Segment a -> Braid v a
 snoc (Braid t) c = case viewr t of
   EmptyR -> Yi.Braid.singleton c
   ts :> Chunk l x | l < defaultChunkSize -> Braid $ ts |> Chunk (l + 1) (x `S.snoc` c)
   _ -> Braid $ t |> Chunk 1 (S.singleton c)
 
--- | Single character 'YiString'. Consider whether it's worth creating
+-- | Turn a single 'S.Segment' into a 'Braid'. 
+-- Consider whether it's worth creating
 -- this, maybe you can use 'cons' or 'snoc' instead?
 singleton :: (ValidBraid v a) => S.Segment a -> Braid v a
 singleton c = Braid . T.singleton $ Chunk 1 (S.singleton c)
 
--- | 'YiString' specialised @any@.
+-- | @any@ specialised to 'Braid'
 --
--- Implementation note: this currently just does any by doing ‘TX.Text’
--- conversions upon consecutive chunks. We should be able to speed it
+-- Implementation note: this currently just does any by doing 'S.any'
+-- on underlying chunks. We should be able to speed it
 -- up by running it in parallel over multiple chunks.
 any :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> Bool
 any p = go . fromBraid
@@ -495,7 +492,7 @@ any p = go . fromBraid
       EmptyL -> False
       Chunk _ t :< ts -> S.any p t || go ts
 
--- | 'YiString' specialised @all@.
+-- | @all@ specialised to 'Braid'
 --
 -- See the implementation note for 'Yi.Braid.any'.
 all :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> Bool
@@ -505,7 +502,7 @@ all p = go . fromBraid
       EmptyL -> True
       Chunk _ t :< ts -> S.all p t && go ts
 
--- | Filters the characters from the underlying string.
+-- | Filters the 'S.Segment's from the underlying chain
 --
 -- >>> filter (/= 'a') "bac"
 -- "bc"
@@ -516,7 +513,7 @@ filter p = Braid . go . fromBraid
       EmptyL -> T.empty
       Chunk _ x :< ts -> mkChunk S.length (S.filter p x) -| go ts
 
--- | Maps the characters over the underlying string.
+-- | Maps the 'S.Segment's of the underlying chain.
 map :: (ValidBraid v a) => (S.Segment a -> S.Segment a) -> Braid v a -> Braid v a
 map f = Braid . go . fromBraid
   where
@@ -524,11 +521,7 @@ map f = Braid . go . fromBraid
       EmptyL -> T.empty
       Chunk l x :< ts -> Chunk l (S.map f x) <| go ts
 
--- | Splits the 'YiString' on characters matching the predicate, like
--- 'TX.split'.
---
--- For splitting on newlines use 'Yi.Braid.lines' or 'Yi.Braid.lines''
--- instead.
+-- | Splits the 'Braid' on characters matching the predicate
 --
 -- Implementation note: GHC actually makes this naive implementation
 -- about as fast and in cases with lots of splits, faster, as a
@@ -549,34 +542,31 @@ foldl' f a = go a . fromBraid
       Chunk _ x :< ts -> let r = S.foldl f acc x
                             in r `seq` go r ts
 
--- | Replicate the given YiString set number of times, concatenating
+-- | Replicate the given 'Braid' a set number of times, concatenating
 -- the results. Also see 'Yi.Braid.replicateChar'.
 replicate :: (ValidBraid v a) => Int -> Braid v a -> Braid v a
 replicate n t | n <= 0 = mempty
               | otherwise = t <> Yi.Braid.replicate (n - 1) t
 
--- | Replicate the given character set number of times and pack the
--- result into a 'YiString'.
---
--- >>> replicateChar 4 ' '
--- "    "
+-- | Replicate the given 'S.Segment' a set number of times and pack the
+-- result into a 'Braid'.
 replicateSegment :: (ValidBraid v a) => Int -> S.Segment a -> Braid v a
 replicateSegment n = toBraid . S.replicate n . S.singleton
 
--- | Helper function doing conversions of to and from underlying
--- 'TX.Text'. You should aim to implement everything in terms of
--- 'YiString' instead.
+-- | Helper function doing conversions to and from the underlying
+-- chain type. You should aim to implement everything in terms of
+-- 'Braid' instead.
 --
 -- Please note that this maps over each __chunk__ so this can only be
 -- used with layout-agnostic functions. For example
 --
--- >>> let t = 'fromString' "abc" <> 'fromString' "def"
--- >>> 'toString' $ 'withText' 'TX.reverse' t
+-- >>> let t = 'toBraid' "abc" <> 'toBraid' "def"
+-- >>> 'extractBraid' $ 'withChunk' 'Data.Text.reverse' t
 -- "cbafed"
 --
--- Probably doesn't do what you wanted, but 'TX.toUpper' would.
--- Specifically, for any @f : 'TX.Text' → 'TX.Text'@, 'withText' will
--- only do the ‘expected’ thing iff
+-- Probably doesn't do what you wanted, but 'Data.Text.toUpper' would.
+-- Specifically, for any @f : 'Data.Text.Text' → 'Data.Text.Text'@, 'withChunk' 
+-- will only do the ‘expected’ thing iff
 --
 -- @f x <> f y ≡ f (x <> y)@
 --
@@ -585,9 +575,8 @@ withChunk :: (ValidBraid v a) => (a -> a) -> Braid v a -> Braid v a
 withChunk f = Braid . T.fmap' (mkChunk S.length . f . _fromChunk) . fromBraid
 
 -- | Maps over each __chunk__ which means this function is UNSAFE! If
--- you use this with functions which don't preserve 'Size', that is
--- the chunk length and number of newlines, things will break really,
--- really badly. You should not need to use this.
+-- you use this with functions which don't preserve a Chunk's measure
+-- things will break really, really badly. You should not need to use this.
 --
 -- Also see 'T.unsafeFmap'
 unsafeWithChunk :: (ValidBraid v a) => (a -> a) -> Braid v a -> Braid v a

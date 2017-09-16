@@ -83,6 +83,13 @@ import           Prelude hiding (drop)
 
 import qualified Yi.Braid as B
 
+-- | A 'YiString' is a 'FingerTree' with cached char and line counts
+-- over chunks of 'TX.Text'.
+type YiString = B.Braid Size TX.Text
+
+fromRope :: B.Braid v a -> FingerTree v (B.Chunk a)
+fromRope = B.fromBraid
+
 -- | Used to cache the size of the strings.
 data Size = Indices { charIndex :: {-# UNPACK #-} !Int
                       -- ^ How many characters under here?
@@ -118,13 +125,6 @@ instance Monoid Size where
 
 instance Measured Size YiChunk where
   measure (B.Chunk l t) = Indices l (countNl t)
-
--- | A 'YiString' is a 'FingerTree' with cached char and line counts
--- over chunks of 'TX.Text'.
-type YiString = B.Braid Size TX.Text
-
-fromRope :: B.Braid v a -> FingerTree v (B.Chunk a)
-fromRope = B.fromBraid
 
 instance NFData Size where
   rnf (Indices !c !l) = c `seq` l `seq` ()
