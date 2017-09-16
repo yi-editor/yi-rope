@@ -570,7 +570,7 @@ replicateChar = B.replicateSegment
 --
 -- which should look very familiar.
 withText :: (TX.Text -> TX.Text) -> YiString -> YiString
-withText = B.withChunk
+withText = B.fmap'
 
 -- | Maps over each __chunk__ which means this function is UNSAFE! If
 -- you use this with functions which don't preserve 'Size', that is

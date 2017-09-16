@@ -63,7 +63,7 @@ module Yi.Braid
   , Yi.Braid.filter
   , Yi.Braid.map
   , Yi.Braid.split
-  , Yi.Braid.withChunk
+  , Yi.Braid.fmap'
   , Yi.Braid.unsafeWithChunk
   , Yi.Braid.foldl'
   , Yi.Braid.replicate
@@ -179,7 +179,7 @@ defaultChunkSize = 1200
 -- (but never more than the default size), perhaps we should
 -- periodically rechunk the tree to recover nice sizes?
 reverse :: (ValidBraid v s a) => Braid v a -> Braid v a
-reverse = Braid . fmap' (overChunk LL.reverse) . T.reverse . fromBraid
+reverse = Braid . T.fmap' (overChunk LL.reverse) . T.reverse . fromBraid
 
 -- | This is like 'toBraid' but it allows the user to specify the
 -- chunk size to be used. Uses 'defaultChunkSize' if the given
@@ -515,7 +515,7 @@ filter p = Braid . go . fromBraid
       Chunk _ x :< ts -> mkChunk LL.length (LL.filter p x) -| go ts
 
 -- | Maps the segments of the underlying chain.
-map :: (ValidBraid v s a) => (s -> s) -> Braid v a -> Braid v a
+map :: (ValidBraid v s a, ValidBraid q t b) => (s -> t) -> Braid v a -> Braid q b
 map f = Braid . go . fromBraid
   where
     go t = case viewl t of
@@ -554,26 +554,18 @@ replicate n t | n <= 0 = mempty
 replicateSegment :: (ValidBraid v s a) => Int -> s -> Braid v a
 replicateSegment n = toBraid . LL.replicate n
 
--- | Helper function doing conversions to and from the underlying
--- chain type. You should aim to implement everything in terms of
--- 'Braid' instead.
---
 -- Please note that this maps over each __chunk__ so this can only be
 -- used with layout-agnostic functions. For example
 --
 -- >>> let t = 'toBraid' "abc" <> 'toBraid' "def"
--- >>> 'extractBraid' $ 'withChunk' 'Data.Text.reverse' t
+-- >>> 'extractBraid' $ 'fmap'' 'Data.Text.reverse' t
 -- "cbafed"
 --
--- Probably doesn't do what you wanted, but 'Data.Text.toUpper' would.
--- Specifically, for any @f : 'Data.Text.Text' → 'Data.Text.Text'@, 'withChunk' 
--- will only do the ‘expected’ thing iff
---
--- @f x <> f y ≡ f (x <> y)@
---
--- which should look very familiar.
-withChunk :: (ValidBraid v s a) => (a -> a) -> Braid v a -> Braid v a
-withChunk f = Braid . T.fmap' (mkChunk LL.length . f . _fromChunk) . fromBraid
+-- If however your function is unaffected by this 'chunking' behaviour
+-- you can tag or transform your underlying sequences or convert between
+-- `Braid` types.
+fmap' :: (ValidBraid v s a, ValidBraid q t b) => (a -> b) -> Braid v a -> Braid q b
+fmap' f = Braid . T.fmap' (mkChunk LL.length . f . _fromChunk) . fromBraid
 
 -- | Maps over each __chunk__ which means this function is UNSAFE! If
 -- you use this with functions which don't preserve a Chunk's measure
