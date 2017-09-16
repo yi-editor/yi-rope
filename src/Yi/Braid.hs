@@ -78,7 +78,8 @@ import           Data.Maybe
 import           Data.Monoid
 import           Data.Typeable
 
-import qualified Yi.Segment as S
+import qualified Data.ListLike as LL
+import qualified Yi.Rope.Internal.ListLikeHelpers as LL
 
 -- | A @'Braid' v a@ is a 'FingerTree' over some underlying type @a@ with
 -- a 'measure' of @v@. The underlying type @a@ is referred to a @chain@ which
@@ -90,9 +91,9 @@ newtype Braid v a = Braid { fromBraid :: T.FingerTree v (Chunk a) }
 -- 
 -- ValidBraid is a constraint which ensures that the values used in the Braid
 -- are valid for use with FingerTrees and can be segmented.
-type ValidBraid v a = (T.Measured v (Chunk a), S.Segmented a, HasSize v)
+type ValidBraid v c s = (T.Measured v (Chunk c), HasSize v, LL.ListLike c s)
 
-instance (ValidBraid v a) => Monoid (Braid v a) where
+instance (ValidBraid v a s) => Monoid (Braid v a) where
   mempty = Yi.Braid.empty
   mappend = Yi.Braid.append
   mconcat = Yi.Braid.concat
@@ -128,12 +129,12 @@ overChunk f (Chunk l t) = Chunk l (f t)
 -- The derived Eq implementation for the underlying tree only passes
 -- the equality check if the chunks are the same too which is not what
 -- we want.
-instance (ValidBraid v a, Eq a) => Eq (Braid v a) where
+instance (ValidBraid v a s, Eq a) => Eq (Braid v a) where
   t == t' = Yi.Braid.length t == Yi.Braid.length t' && extractBraid t == extractBraid t'
 
 -- | Ord is checked by using 'extractBraid' and using the underlying chain's
 -- Ord instance.
-instance (Eq a, Ord a, ValidBraid v a) => Ord (Braid v a) where
+instance (Eq a, Ord a, ValidBraid v a s) => Ord (Braid v a) where
   compare x y = extractBraid x `compare` extractBraid y
 
 -- | A chunk caches the length of the underlying chain since computing the
@@ -145,16 +146,16 @@ data Chunk a = Chunk { chunkSize :: {-# UNPACK #-} !Int
 instance (NFData a) => NFData (Chunk a) where
   rnf (Chunk !i !t) = i `seq` rnf t
 
-instance (NFData a, ValidBraid v a) => NFData (Braid v a) where
+instance (NFData a, ValidBraid v a s) => NFData (Braid v a) where
   rnf = rnf . extractBraid
 
 -- | Prepend a 'Chunk' onto a 'FingerTree'
-(-|) :: (ValidBraid v a) => Chunk a -> FingerTree v (Chunk a) -> FingerTree v (Chunk a)
+(-|) :: (ValidBraid v a s) => Chunk a -> FingerTree v (Chunk a) -> FingerTree v (Chunk a)
 b -| t | chunkSize b == 0 = t
        | otherwise        = b <| t
 
 -- | Append a 'Chunk' onto a 'FingerTree'
-(|-) :: (ValidBraid v a) => FingerTree v (Chunk a) -> Chunk a -> FingerTree v (Chunk a)
+(|-) :: (ValidBraid v a s) => FingerTree v (Chunk a) -> Chunk a -> FingerTree v (Chunk a)
 t |- b | chunkSize b == 0 = t
        | otherwise        = t |> b
 
@@ -177,17 +178,17 @@ defaultChunkSize = 1200
 -- many transformations, our chunks size might become quite varied
 -- (but never more than the default size), perhaps we should
 -- periodically rechunk the tree to recover nice sizes?
-reverse :: (ValidBraid v a) => Braid v a -> Braid v a
-reverse = Braid . fmap' (overChunk S.reverse) . T.reverse . fromBraid
+reverse :: (ValidBraid v a s) => Braid v a -> Braid v a
+reverse = Braid . fmap' (overChunk LL.reverse) . T.reverse . fromBraid
 
 -- | This is like 'toBraid' but it allows the user to specify the
 -- chunk size to be used. Uses 'defaultChunkSize' if the given
 -- size is <= 0.
-toBraid' :: forall v a. (ValidBraid v a) => Int -> a -> Braid v a
+toBraid' :: forall v a s. (ValidBraid v a s) => Int -> a -> Braid v a
 toBraid' n | n <= 0 = toBraid' defaultChunkSize
            | otherwise = Braid . r T.empty . f
   where
-    f = S.chunksOf n
+    f = LL.chunksOf n
 
     -- Convert the given chain into chunks in the tree. We have a
     -- special case for a single element case: because we split on
@@ -196,19 +197,19 @@ toBraid' n | n <= 0 = toBraid' defaultChunkSize
     -- of having to recompute chunk size at creation.
     r :: FingerTree v (Chunk a) -> [a] -> FingerTree v (Chunk a)
     r !tr []     = tr
-    r !tr (t:[]) = tr |- mkChunk S.length t
+    r !tr (t:[]) = tr |- mkChunk LL.length t
     r !tr (t:ts) = let r' = tr |- mkChunk (const n) t
                    in r r' ts
 
 -- | Converts a chain of arbitrary type into a 'Braid' using
 -- 'defaultChunkSize'-sized chunks for the underlying tree.
-toBraid :: (ValidBraid v a) => a -> Braid v a
+toBraid :: (ValidBraid v a s) => a -> Braid v a
 toBraid = toBraid' defaultChunkSize
 
 -- | Extracts the entire underlying chain by deconstructing the tree.
 -- Consider whether you really need to use this, it's very inefficient.
-extractBraid :: forall v a. (ValidBraid v a) => Braid v a -> a
-extractBraid = S.concat . go . fromBraid
+extractBraid :: forall v a s. (ValidBraid v a s) => Braid v a -> a
+extractBraid = LL.concat . go . fromBraid
   where
     go :: FingerTree v (Chunk a) -> [a]
     go t = case viewl t of
@@ -220,21 +221,21 @@ extractBraid = S.concat . go . fromBraid
 -- Note that this is actually slightly faster than manually unrolling
 -- the tree from the end, reversing each chunk and
 -- concating, at least with -O2 which you really should be using anyway.
-toReversed :: (ValidBraid v a) => Braid v a -> a
-toReversed = S.reverse . extractBraid
+toReversed :: (ValidBraid v a s) => Braid v a -> a
+toReversed = LL.reverse . extractBraid
 
 -- | Checks if the given 'Braid' is empty.
-null :: (ValidBraid v a) => Braid v a -> Bool
+null :: (ValidBraid v a s) => Braid v a -> Bool
 null = T.null . fromBraid
 
 -- | Creates an empty 'Braid'
-empty :: (ValidBraid v a) => Braid v a
+empty :: (ValidBraid v a s) => Braid v a
 empty = Braid T.empty
 
 -- | Length of the whole underlying chain.
 --
 -- Amortized constant time.
-length :: (ValidBraid v a) => Braid v a -> Int
+length :: (ValidBraid v a s) => Braid v a -> Int
 length = getSize . measure . fromBraid
 
 -- | Append two 'Braid's.
@@ -248,7 +249,7 @@ length = getSize . measure . fromBraid
 --
 -- I suspect that this pays for itself as we'd spend more time
 -- computing over all the little chunks than few large ones anyway.
-append :: (ValidBraid v a) => Braid v a -> Braid v a -> Braid v a
+append :: (ValidBraid v a s) => Braid v a -> Braid v a -> Braid v a
 append (Braid t) (Braid t') = case (viewr t, viewl t') of
   (EmptyR, _) -> Braid t'
   (_, EmptyL) -> Braid t
@@ -258,36 +259,36 @@ append (Braid t) (Braid t') = case (viewr t, viewl t') of
       _ -> Braid (ts |- Chunk len (x <> x') <> ts')
 
 -- | Concat a list of 'Braid's.
-concat :: (ValidBraid v a) => [Braid v a] -> Braid v a
+concat :: (ValidBraid v a s) => [Braid v a] -> Braid v a
 concat = L.foldl' append empty
 
 -- | Take the first 'S.Segment' of the underlying chain if possible.
-head :: (ValidBraid v a) => Braid v a -> Maybe (S.Segment a)
+head :: (ValidBraid v a s) => Braid v a -> Maybe (s)
 head (Braid t) = case viewl t of
   EmptyL -> Nothing
-  Chunk _ x :< _ -> if S.null x then Nothing else Just (S.head x)
+  Chunk _ x :< _ -> if LL.null x then Nothing else Just (LL.head x)
 
 -- | Take the last 'S.Segment' of the underlying chain if possible.
-last :: (ValidBraid v a) => Braid v a -> Maybe (S.Segment a)
+last :: (ValidBraid v a s) => Braid v a -> Maybe (s)
 last (Braid t) = case viewr t of
   EmptyR -> Nothing
-  _ :> Chunk _ x -> if S.null x then Nothing else Just (S.last x)
+  _ :> Chunk _ x -> if LL.null x then Nothing else Just (LL.last x)
 
 -- | Takes every 'S.Segment' but the last one: returns Nothing on empty
 -- string.
-init :: (ValidBraid v a) => Braid v a -> Maybe (Braid v a)
+init :: (ValidBraid v a s) => Braid v a -> Maybe (Braid v a)
 init (Braid t) = case viewr t of
   EmptyR -> Nothing
   ts :> Chunk 0 _ -> Yi.Braid.init (Braid ts)
-  ts :> Chunk l x -> Just . Braid $ ts |- Chunk (l - 1) (S.init x)
+  ts :> Chunk l x -> Just . Braid $ ts |- Chunk (l - 1) (LL.init x)
 
 -- | Takes the tail of the underlying chain. If the string is empty
 -- to begin with, returns Nothing.
-tail :: (ValidBraid v a) => Braid v a -> Maybe (Braid v a)
+tail :: (ValidBraid v a s) => Braid v a -> Maybe (Braid v a)
 tail (Braid t) = case viewl t of
   EmptyL -> Nothing
   Chunk 0 _ :< ts -> Yi.Braid.tail (Braid ts)
-  Chunk l x :< ts -> Just . Braid $ Chunk (l - 1) (S.tail x) -| ts
+  Chunk l x :< ts -> Just . Braid $ Chunk (l - 1) (LL.tail x) -| ts
 
 -- | Splits the 'Braid' at given number of 'S.Segment's.
 --
@@ -309,12 +310,12 @@ tail (Braid t) = case viewl t of
 -- cons and one cons of a chunk and lastly the cost of 'T.splitAt' of
 -- the underlying chain type. It turns out to be fairly fast all
 -- together.
-splitAt :: (ValidBraid v a) => Int -> Braid v a -> (Braid v a, Braid v a)
+splitAt :: (ValidBraid v a s) => Int -> Braid v a -> (Braid v a, Braid v a)
 splitAt n (Braid t)
   | n <= 0 = (mempty, Braid t)
   | otherwise = case viewl s of
     Chunk l x :< ts | n' /= 0 ->
-      let (lx, rx) = S.splitAt n' x
+      let (lx, rx) = LL.splitAt n' x
       in (Braid $ f |> Chunk n' lx,
           Braid $ Chunk (l - n') rx -| ts)
     _ -> (Braid f, Braid s)
@@ -323,31 +324,31 @@ splitAt n (Braid t)
     n' = n - getSize (measure f)
 
 -- | Takes the first n given 'S.Segment's
-take :: (ValidBraid v a) => Int -> Braid v a -> Braid v a
+take :: (ValidBraid v a s) => Int -> Braid v a -> Braid v a
 take 1 = maybe mempty Yi.Braid.singleton . Yi.Braid.head
 take n = fst . Yi.Braid.splitAt n
 
 -- | Drops the first n 'S.Segment's.
-drop :: (ValidBraid v a) => Int -> Braid v a -> Braid v a
+drop :: (ValidBraid v a s) => Int -> Braid v a -> Braid v a
 drop 1 = fromMaybe mempty . Yi.Braid.tail
 drop n = snd . Yi.Braid.splitAt n
 
 -- | The usual 'Prelude.dropWhile' optimised for 'Braid's.
-dropWhile :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> Braid v a
+dropWhile :: (ValidBraid v a s) => (s -> Bool) -> Braid v a -> Braid v a
 dropWhile p = Braid . go . fromBraid
   where
     go t = case viewl t of
       EmptyL -> T.empty
       Chunk 0 _ :< ts -> go ts
       Chunk l x :< ts ->
-        let r = S.dropWhile p x
-            l' = S.length r
+        let r = LL.dropWhile p x
+            l' = LL.length r
         in case compare l' l of
           -- We dropped nothing so we must be done.
           EQ -> t
           -- We dropped something, if it was everything then drop from
           -- next chunk.
-          LT | S.null r -> go ts
+          LT | LL.null r -> go ts
           -- It wasn't everything and we have left-overs, we must be done.
              | otherwise -> Chunk l' r <| ts
           -- We shouldn't really get here or it would mean that
@@ -359,31 +360,31 @@ dropWhile p = Braid . go . fromBraid
           _ -> Chunk l' r -| ts
 
 -- | As 'Yi.Braid.dropWhile' but drops from the end instead.
-dropWhileEnd :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> Braid v a
+dropWhileEnd :: (ValidBraid v a s) => (s -> Bool) -> Braid v a -> Braid v a
 dropWhileEnd p = Braid . go . fromBraid
   where
     go t = case viewr t of
       EmptyR -> T.empty
       ts :> Chunk 0 _ -> go ts
       ts :> Chunk l x ->
-        let r = S.dropWhileEnd p x
-            l' = S.length r
+        let r = LL.dropWhileEnd p x
+            l' = LL.length r
         in case compare l' l of
           EQ -> t
-          LT | S.null r -> go ts
+          LT | LL.null r -> go ts
              | otherwise -> ts |> Chunk l' r
           _ -> ts |- Chunk l' r
 
 -- | The usual 'Prelude.takeWhile' optimised for 'Braid's.
-takeWhile :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> Braid v a
+takeWhile :: (ValidBraid v a s) => (s -> Bool) -> Braid v a -> Braid v a
 takeWhile p = Braid . go . fromBraid
   where
     go t = case viewl t of
       EmptyL -> T.empty
       Chunk 0 _ :< ts -> go ts
       Chunk l x :< ts ->
-        let r = S.takeWhile p x
-            l' = S.length r
+        let r = LL.takeWhile p x
+            l' = LL.length r
         in case compare l' l of
           -- We took the whole chunk, keep taking more.
           EQ -> Chunk l x -| go ts
@@ -395,7 +396,7 @@ takeWhile p = Braid . go . fromBraid
           _ -> T.singleton $ Chunk l' r
 
 -- | Like 'Yi.Braid.takeWhile' but takes from the end instead.
-takeWhileEnd :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> Braid v a
+takeWhileEnd :: (ValidBraid v a s) => (s -> Bool) -> Braid v a -> Braid v a
 takeWhileEnd p = Braid . go . fromBraid
   where
     go t = case viewr t of
@@ -406,8 +407,8 @@ takeWhileEnd p = Braid . go . fromBraid
         _ -> T.singleton $ Chunk l' r
         where
           -- no TX.takeWhileEnd – https://github.com/bos/text/issues/89
-          r = S.reverse . S.takeWhile p . S.reverse $ x
-          l' = S.length r
+          r = LL.reverse . LL.takeWhile p . LL.reverse $ x
+          l' = LL.length r
 
 
 -- | Returns a pair whose first element is the longest prefix
@@ -416,7 +417,7 @@ takeWhileEnd p = Braid . go . fromBraid
 --
 -- This implementation uses 'Yi.Braid.splitAt' which actually is just
 -- as fast as hand-unrolling the tree. GHC sure is great!
-span :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> (Braid v a, Braid v a)
+span :: (ValidBraid v a s) => (s -> Bool) -> Braid v a -> (Braid v a, Braid v a)
 span p y = let x = Yi.Braid.takeWhile p y
            in case Yi.Braid.splitAt (Yi.Braid.length x) y of
              -- Re-using ‘x’ seems to gain us a minor performance
@@ -424,7 +425,7 @@ span p y = let x = Yi.Braid.takeWhile p y
              (_, y') -> (x, y')
 
 -- | Just like 'Yi.Braid.span' but with the predicate negated.
-break :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> (Braid v a, Braid v a)
+break :: (ValidBraid v a s) => (s -> Bool) -> Braid v a -> (Braid v a, Braid v a)
 break p = Yi.Braid.span (not . p)
 
 -- | Concatenates the list of 'Braid's after inserting the
@@ -434,7 +435,7 @@ break p = Yi.Braid.span (not . p)
 -- length 1. If you don't want this, it's up to you to pre-process the
 -- list. Just as with 'Yi.Braid.intersperse', it is up to the user to
 -- pre-process the list.
-intercalate :: (ValidBraid v a) => Braid v a -> [Braid v a] -> Braid v a
+intercalate :: (ValidBraid v a s) => Braid v a -> [Braid v a] -> Braid v a
 intercalate _ [] = mempty
 intercalate (Braid t') (Braid s:ss) = Braid $ go s ss
   where
@@ -453,7 +454,7 @@ intercalate (Braid t') (Braid s:ss) = Braid $ go s ss
 -- 'Yi.Braid.intercalate'. Note that what this does __not__ do is
 -- intersperse 'S.Segment's into the underlying chain, you should convert
 -- and use your type's underlying intersperse for that instead.
-intersperse :: (ValidBraid v a) => S.Segment a -> [Braid v a] -> Braid v a
+intersperse :: (ValidBraid v a s) => s -> [Braid v a] -> Braid v a
 intersperse _ [] = mempty
 intersperse c (t:ts) = go t ts
   where
@@ -461,65 +462,65 @@ intersperse c (t:ts) = go t ts
     go acc (t':ts') = go (acc <> (c `cons` t')) ts'
 
 -- | Add a 'S.Segment' in front of a 'Braid'.
-cons :: (ValidBraid v a) => S.Segment a -> Braid v a -> Braid v a
+cons :: (ValidBraid v a s) => s -> Braid v a -> Braid v a
 cons c (Braid t) = case viewl t of
   EmptyL -> Yi.Braid.singleton c
-  Chunk l x :< ts | l < defaultChunkSize -> Braid $ Chunk (l + 1) (c `S.cons` x) <| ts
-  _ -> Braid $ Chunk 1 (S.singleton c) <| t
+  Chunk l x :< ts | l < defaultChunkSize -> Braid $ Chunk (l + 1) (c `LL.cons` x) <| ts
+  _ -> Braid $ Chunk 1 (LL.singleton c) <| t
 
 -- | Add a 'S.Segment' in the back of a 'Braid'.
-snoc :: (ValidBraid v a) => Braid v a -> S.Segment a -> Braid v a
+snoc :: (ValidBraid v a s) => Braid v a -> s -> Braid v a
 snoc (Braid t) c = case viewr t of
   EmptyR -> Yi.Braid.singleton c
-  ts :> Chunk l x | l < defaultChunkSize -> Braid $ ts |> Chunk (l + 1) (x `S.snoc` c)
-  _ -> Braid $ t |> Chunk 1 (S.singleton c)
+  ts :> Chunk l x | l < defaultChunkSize -> Braid $ ts |> Chunk (l + 1) (x `LL.snoc` c)
+  _ -> Braid $ t |> Chunk 1 (LL.singleton c)
 
 -- | Turn a single 'S.Segment' into a 'Braid'. 
 -- Consider whether it's worth creating
 -- this, maybe you can use 'cons' or 'snoc' instead?
-singleton :: (ValidBraid v a) => S.Segment a -> Braid v a
-singleton c = Braid . T.singleton $ Chunk 1 (S.singleton c)
+singleton :: (ValidBraid v a s) => s -> Braid v a
+singleton c = Braid . T.singleton $ Chunk 1 (LL.singleton c)
 
 -- | @any@ specialised to 'Braid'
 --
 -- Implementation note: this currently just does any by doing 'S.any'
 -- on underlying chunks. We should be able to speed it
 -- up by running it in parallel over multiple chunks.
-any :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> Bool
+any :: (ValidBraid v a s) => (s -> Bool) -> Braid v a -> Bool
 any p = go . fromBraid
   where
     go x = case viewl x of
       EmptyL -> False
-      Chunk _ t :< ts -> S.any p t || go ts
+      Chunk _ t :< ts -> LL.any p t || go ts
 
 -- | @all@ specialised to 'Braid'
 --
 -- See the implementation note for 'Yi.Braid.any'.
-all :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> Bool
+all :: (ValidBraid v a s) => (s -> Bool) -> Braid v a -> Bool
 all p = go . fromBraid
   where
     go x = case viewl x of
       EmptyL -> True
-      Chunk _ t :< ts -> S.all p t && go ts
+      Chunk _ t :< ts -> LL.all p t && go ts
 
 -- | Filters the 'S.Segment's from the underlying chain
 --
 -- >>> filter (/= 'a') "bac"
 -- "bc"
-filter :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> Braid v a
+filter :: (ValidBraid v a s) => (s -> Bool) -> Braid v a -> Braid v a
 filter p = Braid . go . fromBraid
   where
     go t = case viewl t of
       EmptyL -> T.empty
-      Chunk _ x :< ts -> mkChunk S.length (S.filter p x) -| go ts
+      Chunk _ x :< ts -> mkChunk LL.length (LL.filter p x) -| go ts
 
 -- | Maps the 'S.Segment's of the underlying chain.
-map :: (ValidBraid v a) => (S.Segment a -> S.Segment a) -> Braid v a -> Braid v a
+map :: (ValidBraid v a s) => (s -> s) -> Braid v a -> Braid v a
 map f = Braid . go . fromBraid
   where
     go t = case viewl t of
       EmptyL -> T.empty
-      Chunk l x :< ts -> Chunk l (S.map f x) <| go ts
+      Chunk l x :< ts -> Chunk l (LL.map f x) <| go ts
 
 -- | Splits the 'Braid' on characters matching the predicate
 --
@@ -527,31 +528,31 @@ map f = Braid . go . fromBraid
 -- about as fast and in cases with lots of splits, faster, as a
 -- hand-rolled version on chunks with appends which is quite amazing
 -- in itself.
-split :: (ValidBraid v a) => (S.Segment a -> Bool) -> Braid v a -> [Braid v a]
-split p = fmap toBraid . S.split p . extractBraid
+split :: (ValidBraid v a s) => (s -> Bool) -> Braid v a -> [Braid v a]
+split p = fmap toBraid . LL.split p . extractBraid
 
 -- | Left fold.
 --
 -- Benchmarks show that folding is actually Pretty Damn Slow™: consider
 -- whether folding is really the best thing to use in your scenario.
-foldl' :: (ValidBraid v a) => (b -> S.Segment a -> b) -> b -> Braid v a -> b
+foldl' :: (ValidBraid v a s) => (b -> s -> b) -> b -> Braid v a -> b
 foldl' f a = go a . fromBraid
   where
     go acc t = case viewl t of
       EmptyL -> acc
-      Chunk _ x :< ts -> let r = S.foldl f acc x
+      Chunk _ x :< ts -> let r = LL.foldl f acc x
                             in r `seq` go r ts
 
 -- | Replicate the given 'Braid' a set number of times, concatenating
 -- the results. Also see 'Yi.Braid.replicateChar'.
-replicate :: (ValidBraid v a) => Int -> Braid v a -> Braid v a
+replicate :: (ValidBraid v a s) => Int -> Braid v a -> Braid v a
 replicate n t | n <= 0 = mempty
               | otherwise = t <> Yi.Braid.replicate (n - 1) t
 
 -- | Replicate the given 'S.Segment' a set number of times and pack the
 -- result into a 'Braid'.
-replicateSegment :: (ValidBraid v a) => Int -> S.Segment a -> Braid v a
-replicateSegment n = toBraid . S.replicate n . S.singleton
+replicateSegment :: (ValidBraid v a s) => Int -> s -> Braid v a
+replicateSegment n = toBraid . LL.replicate n
 
 -- | Helper function doing conversions to and from the underlying
 -- chain type. You should aim to implement everything in terms of
@@ -571,15 +572,15 @@ replicateSegment n = toBraid . S.replicate n . S.singleton
 -- @f x <> f y ≡ f (x <> y)@
 --
 -- which should look very familiar.
-withChunk :: (ValidBraid v a) => (a -> a) -> Braid v a -> Braid v a
-withChunk f = Braid . T.fmap' (mkChunk S.length . f . _fromChunk) . fromBraid
+withChunk :: (ValidBraid v a s) => (a -> a) -> Braid v a -> Braid v a
+withChunk f = Braid . T.fmap' (mkChunk LL.length . f . _fromChunk) . fromBraid
 
 -- | Maps over each __chunk__ which means this function is UNSAFE! If
 -- you use this with functions which don't preserve a Chunk's measure
 -- things will break really, really badly. You should not need to use this.
 --
 -- Also see 'T.unsafeFmap'
-unsafeWithChunk :: (ValidBraid v a) => (a -> a) -> Braid v a -> Braid v a
+unsafeWithChunk :: (ValidBraid v a s) => (a -> a) -> Braid v a -> Braid v a
 unsafeWithChunk f = Braid . T.unsafeFmap g . fromBraid
   where
     g (Chunk l t) = Chunk l (f t)
