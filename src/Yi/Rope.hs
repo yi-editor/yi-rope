@@ -70,6 +70,7 @@ import qualified Data.ByteString.Lazy as BSL
 import           Data.Char (isSpace)
 import qualified Data.FingerTree as T
 import           Data.FingerTree hiding (null, empty, reverse, split)
+import qualified Data.ListLike as LL
 import           Data.Maybe
 import           Data.Monoid
 import           Data.String (IsString(..))
@@ -83,11 +84,27 @@ import           Prelude hiding (drop)
 
 import qualified Yi.Braid as B
 
+-- | A chunk caches the length of the underlying Text since computing the
+-- length of Text is O(n)
+data YiChunk = Chunk { _chunkSize :: {-# UNPACK #-} !Int
+                     , _fromChunk :: {-# UNPACK #-} !TX.Text
+                     } deriving (Show, Eq, Typeable)
+
+instance NFData YiChunk where
+  rnf (Chunk !i !t) = i `seq` rnf t
+
+-- | Transform the chain inside the chunk. It's vital that the transformation
+-- preserves the length of the content.
+overChunk :: (TX.Text -> TX.Text) -- ^ Length-preserving content transformation.
+          -> YiChunk -> YiChunk
+overChunk f (Chunk l t) = Chunk l (f t)
+
+
 -- | A 'YiString' is a 'FingerTree' with cached char and line counts
 -- over chunks of 'TX.Text'.
-type YiString = B.Braid Size TX.Text
+type YiString = B.Braid Size YiChunk
 
-fromRope :: B.Braid v a -> FingerTree v (B.Chunk a)
+fromRope :: YiString -> FingerTree Size YiChunk
 fromRope = B.fromBraid
 
 -- | Used to cache the size of the strings.
@@ -100,10 +117,6 @@ data Size = Indices { charIndex :: {-# UNPACK #-} !Int
 instance B.HasSize Size where
   getSize = charIndex
 
--- | A chunk storing the string of the type it is indexed by. It
--- caches the length of stored string.
-type YiChunk = B.Chunk TX.Text
-
 -- | Makes a chunk from a given string. We allow for an arbitrary
 -- length function here to allow us to bypass the calculation with
 -- 'const' in case the length is known ahead of time. In most cases,
@@ -113,7 +126,8 @@ type YiChunk = B.Chunk TX.Text
 mkChunk :: (TX.Text -> Int) -- ^ The length function to use.
         -> TX.Text
         -> YiChunk
-mkChunk = B.mkChunk
+mkChunk l t = Chunk (l t) t
+
 
 -- | Counts number of newlines in the given 'TX.Text'.
 countNl :: TX.Text -> Int
@@ -124,7 +138,7 @@ instance Monoid Size where
   Indices c l `mappend` Indices c' l' = Indices (c + c') (l + l')
 
 instance Measured Size YiChunk where
-  measure (B.Chunk l t) = Indices l (countNl t)
+  measure (Chunk l t) = Indices l (countNl t)
 
 instance NFData Size where
   rnf (Indices !c !l) = c `seq` l `seq` ()
@@ -173,19 +187,19 @@ toReverseString = TX.unpack . toReverseText
 -- chunk size to be used. Uses 'defaultChunkSize' if the given
 -- size is <= 0.
 fromText' :: Int -> TX.Text -> YiString
-fromText' = B.toBraid'
+fromText' n = B.toBraid' n . mkChunk TX.length
 
 -- | Converts a 'TX.Text' into a 'YiString' using
 -- 'defaultChunkSize'-sized chunks for the underlying tree.
 fromText :: TX.Text -> YiString
-fromText = B.toBraid
+fromText = B.toBraid . mkChunk TX.length
 
 fromLazyText :: TXL.Text -> YiString
 fromLazyText = B.Braid . T.fromList . fmap (mkChunk TX.length) . TXL.toChunks
 
 -- | Consider whether you really need to use this!
 toText :: YiString -> TX.Text
-toText = B.extractBraid
+toText = _fromChunk . B.extractBraid
 
 -- | Spits out the underlying string, reversed.
 --
@@ -373,7 +387,7 @@ splitAtLine n r | n <= 0    = (empty, r)
 -- characters.
 splitAtLine' :: Int -> YiString -> (YiString, YiString)
 splitAtLine' p (B.Braid tr) = case viewl s of
-  ch@(B.Chunk _ x) :< r ->
+  ch@(Chunk _ x) :< r ->
     let excess = lineIndex (measure f) + lineIndex (measure ch) - p - 1
         (lx, rx) = cutExcess excess x
     in (B.Braid $ f |- mkChunk TX.length lx,
@@ -409,11 +423,11 @@ lines = Prelude.map dropNl . lines'
   where
     dropNl (B.Braid t)  = case viewr t of
       EmptyR -> Yi.Rope.empty
-      ts :> ch@(B.Chunk l tx) ->
+      ts :> ch@(Chunk l tx) ->
         B.Braid $ ts |- if TX.null tx
                          then ch
                          else case TX.last tx of
-                           '\n' -> B.Chunk (l - 1) (TX.init tx)
+                           '\n' -> Chunk (l - 1) (TX.init tx)
                            _ -> ch
 
 -- | Splits the 'YiString' into a list of 'YiString' each containing a
@@ -570,7 +584,7 @@ replicateChar = B.replicateSegment
 --
 -- which should look very familiar.
 withText :: (TX.Text -> TX.Text) -> YiString -> YiString
-withText = B.fmap'
+withText = B.fmap' . overChunk
 
 -- | Maps over each __chunk__ which means this function is UNSAFE! If
 -- you use this with functions which don't preserve 'Size', that is
@@ -579,4 +593,120 @@ withText = B.fmap'
 --
 -- Also see 'T.unsafeFmap'
 unsafeWithText :: (TX.Text -> TX.Text) -> YiString -> YiString
-unsafeWithText = B.unsafeWithChunk
+unsafeWithText = B.unsafeWithChunk . overChunk
+
+instance Monoid YiChunk where
+  mempty = Chunk 0 mempty
+  Chunk n txt `mappend` Chunk n' txt' = Chunk (n + n') (txt `mappend` txt')
+
+instance LL.FoldableLL YiChunk Char where
+  foldl f d (Chunk _ x) = LL.foldl f d x
+  foldl' f d (Chunk _ x)= LL.foldl' f d x
+  foldl1 f (Chunk _ x)= LL.foldl1 f x
+  foldr f d (Chunk _ x)= LL.foldr f d x
+  foldr' f d (Chunk _ x) = LL.foldr' f d x
+  foldr1 f (Chunk _ x) = LL.foldr1 f x
+
+instance LL.ListLike YiChunk Char where
+  empty = Chunk 0 TX.empty
+  singleton = Chunk 1 . TX.singleton
+  cons c (Chunk n x) = Chunk (n + 1) (TX.cons c x)
+  snoc (Chunk n x) c = Chunk (n + 1) (TX.snoc x c)
+  append (Chunk n x) (Chunk n' x') = Chunk (n + n') (x `TX.append` x')
+  head (Chunk _ x) = TX.head x
+  uncons (Chunk n x) = case TX.uncons x of
+                         Just (c, rest) -> Just (c, Chunk (n - 1) rest)
+                         Nothing -> Nothing
+  last (Chunk _ x) = TX.last x
+  tail (Chunk l x) = (Chunk (l - 1) (TX.tail x))
+  init (Chunk l x) = (Chunk (l - 1) (TX.init x))
+
+  null (Chunk 0 _) = True
+  null _ = False
+  length (Chunk l _) = l
+  -- map f (Chunk n x) = Chunk n (TX.map f x)
+  -- rigidMap = LL.map
+  reverse (Chunk n x) = Chunk n (TX.reverse x)
+  intersperse _ (Chunk 0 x) = Chunk 0 x
+  intersperse _ (Chunk 1 x) = Chunk 1 x
+  intersperse c (Chunk n x) = Chunk ((2 * n) - 1) (TX.intersperse c x)
+  -- concat = fold
+  -- concatMap = foldMap
+  -- rigidConcatMap = concatMap
+  any p (Chunk _ x) = TX.any p x
+  all p (Chunk _ x) = TX.all p x
+  -- maximum = foldr1 max
+  -- minimum = foldr1 min
+  replicate n c = Chunk n (TX.replicate n (TX.singleton c))
+  take n c@(Chunk n' x) | n >= n' = c
+                        | otherwise = Chunk n (TX.take n x)
+  drop n (Chunk n' x) | n >= n' = LL.empty
+                      | otherwise = Chunk (n' - n) (TX.drop n x)
+
+  splitAt n c@(Chunk n' x)
+    | n <= 0 = (LL.empty, c)
+    | n >= n' = (c, LL.empty)
+    | otherwise = let (pre, post) = TX.splitAt n x
+                   in (Chunk n pre, Chunk (n' - n) post)
+
+  takeWhile p (Chunk _ x) =
+    let x' = TX.takeWhile p x
+     in (Chunk (TX.length x') x)
+
+  dropWhile p (Chunk _ x) =
+    let x' = TX.dropWhile p x
+     in (Chunk (TX.length x') x)
+
+  dropWhileEnd p (Chunk _ x) =
+    let x' = TX.dropWhileEnd p x
+     in (Chunk (TX.length x') x)
+
+  span p (Chunk l x) = let (pre, post) = TX.span p x
+                           preLen = TX.length pre
+                           postLen = l - preLen
+                        in (Chunk preLen pre, Chunk postLen post)
+
+  -- break p = LL.span (not . p)
+  -- group :: (ListLike full' full, Eq item) => full -> full' Source #
+  -- inits :: ListLike full' full => full -> full' Source #
+  -- tails :: ListLike full' full => full -> full' Source #
+  -- isPrefixOf :: Eq item => full -> full -> Bool Source #
+  -- isSuffixOf :: Eq item => full -> full -> Bool Source #
+  -- isInfixOf :: Eq item => full -> full -> Bool Source #
+  -- stripPrefix :: Eq item => full -> full -> Maybe full Source #
+  -- stripSuffix :: Eq item => full -> full -> Maybe full Source #
+  -- elem :: Eq item => item -> full -> Bool Source #
+  -- notElem :: Eq item => item -> full -> Bool Source #
+  -- find :: (item -> Bool) -> full -> Maybe item Source #
+  filter p (Chunk _ x) = mkChunk TX.length $ TX.filter p x
+  -- index :: full -> Int -> item Source #
+  -- elemIndex :: Eq item => item -> full -> Maybe Int Source #
+  -- elemIndices :: (Eq item, ListLike result Int) => item -> full -> result Source #
+  -- findIndex :: (item -> Bool) -> full -> Maybe Int Source #
+  -- findIndices :: ListLike result Int => (item -> Bool) -> full -> result Source #
+  -- sequence :: (Monad m, ListLike fullinp (m item)) => fullinp -> m full Source #
+  -- mapM :: (Monad m, ListLike full' item') => (item -> m item') -> full -> m full' Source #
+  -- rigidMapM :: Monad m => (item -> m item) -> full -> m full Source #
+  -- nub :: Eq item => full -> full Source #
+  -- delete :: Eq item => item -> full -> full Source #
+  -- deleteFirsts :: Eq item => full -> full -> full Source #
+  -- union :: Eq item => full -> full -> full Source #
+  -- intersect :: Eq item => full -> full -> full Source #
+  -- sort :: Ord item => full -> full Source #
+  -- insert :: Ord item => item -> full -> full Source #
+  -- toList :: full -> [item] Source #
+  -- fromList :: [item] -> full Source #
+  -- fromListLike :: ListLike full' item => full -> full' Source #
+  -- nubBy :: (item -> item -> Bool) -> full -> full Source #
+  -- deleteBy :: (item -> item -> Bool) -> item -> full -> full Source #
+  -- deleteFirstsBy :: (item -> item -> Bool) -> full -> full -> full Source #
+  -- unionBy :: (item -> item -> Bool) -> full -> full -> full Source #
+  -- intersectBy :: (item -> item -> Bool) -> full -> full -> full Source #
+  -- groupBy :: (ListLike full' full, Eq item) => (item -> item -> Bool) -> full -> full' Source #
+  -- sortBy :: (item -> item -> Ordering) -> full -> full Source #
+  -- insertBy :: (item -> item -> Ordering) -> item -> full -> full Source #
+  -- genericLength :: Num a => full -> a Source #
+  -- genericTake :: Integral a => a -> full -> full Source #
+  -- genericDrop :: Integral a => a -> full -> full Source #
+  -- genericSplitAt :: Integral a => a -> full -> (full, full) Source #
+  -- genericReplicate :: Integral a => a -> item -> full
