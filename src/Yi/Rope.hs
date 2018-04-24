@@ -1,3 +1,4 @@
+{-# language CPP #-}
 {-# language BangPatterns #-}
 {-# language DeriveDataTypeable #-}
 {-# language LambdaCase #-}
@@ -115,6 +116,11 @@ overChunk f (Chunk l t) = Chunk l (f t)
 countNl :: TX.Text -> Int
 countNl = TX.count "\n"
 
+#if __GLASGOW_HASKELL__ >= 804
+instance Semigroup Size where
+  (<>) = mappend
+#endif
+
 instance Monoid Size where
   mempty = Indices 0 0
   Indices c l `mappend` Indices c' l' = Indices (c + c') (l + l')
@@ -152,6 +158,11 @@ instance NFData YiString where
 
 instance IsString YiString where
   fromString = Yi.Rope.fromString
+
+#if __GLASGOW_HASKELL__ >= 804
+instance Semigroup YiString where
+  (<>) = mappend
+#endif
 
 instance Monoid YiString where
   mempty = Yi.Rope.empty
