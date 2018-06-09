@@ -70,6 +70,7 @@ import qualified Data.ByteString.Lazy as BSL
 import           Data.Char (isSpace)
 import qualified Data.FingerTree as T
 import           Data.FingerTree hiding (null, empty, reverse, split)
+import           Data.Function (fix)
 import qualified Data.List as L (foldl')
 import           Data.Maybe
 import           Data.Monoid
@@ -249,14 +250,20 @@ fromText = fromText' defaultChunkSize
 fromLazyText :: TXL.Text -> YiString
 fromLazyText = YiString . T.fromList . fmap (mkChunk TX.length) . TXL.toChunks
 
+-- | Useful for taking advantage of fusion
+toTextList :: YiString -> [TX.Text]
+toTextList =
+    fix go . fromRope
+  where
+    go :: (FingerTree Size YiChunk -> [TX.Text])
+       -> FingerTree Size YiChunk -> [TX.Text]
+    go f t = case viewl t of
+        EmptyL -> []
+        Chunk _ !c :< cs -> c : f cs
+
 -- | Consider whether you really need to use this!
 toText :: YiString -> TX.Text
-toText = TX.concat . go . fromRope
-  where
-    go :: FingerTree Size YiChunk -> [TX.Text]
-    go t = case viewl t of
-      Chunk _ !c :< cs -> c : go cs
-      EmptyL -> []
+toText = TX.concat . toTextList
 
 -- | Spits out the underlying string, reversed.
 --
@@ -552,8 +559,8 @@ splitAtLine n r | n <= 0    = (empty, r)
 -- characters.
 splitAtLine' :: Int -> YiString -> (YiString, YiString)
 splitAtLine' p (YiString tr) = case viewl s of
-  ch@(Chunk _ x) :< r ->
-    let excess = lineIndex (measure f) + lineIndex (measure ch) - p - 1
+  (Chunk _ x) :< r ->
+    let excess = lineIndex (measure f) - p - 1
         (lx, rx) = cutExcess excess x
     in (YiString $ f |- mkChunk TX.length lx,
         YiString $ mkChunk TX.length rx -| r)
@@ -561,39 +568,26 @@ splitAtLine' p (YiString tr) = case viewl s of
   where
     (f, s) = T.split ((p <) . lineIndex) tr
 
+    takeNLines :: Int -> TX.Text -> TX.Text
+    takeNLines n = TX.unlines . Prelude.take n . TX.lines
+
     cutExcess :: Int -> TX.Text -> (TX.Text, TX.Text)
-    cutExcess n t = case TX.length t of
-      0 -> (TX.empty, TX.empty)
-      _ -> let ns = countNl t
-               ls = TX.lines t
-               front = TX.unlines $ Prelude.take (ns - n) ls
-               back = TX.drop (TX.length front) t
-           in if n >= ns
-              then (t, TX.empty)
-              else (front, back)
+    cutExcess _ (TX.null -> True) = (TX.empty, TX.empty)
+    cutExcess ((>=0) -> True) t = (t, TX.empty)
+    cutExcess n t = let front = takeNLines (negate n) t
+                        back = TX.drop (TX.length front) t
+                    in (front, back)
 
 -- | This is like 'lines'' but it does *not* preserve newlines.
 --
 -- Specifically, we just strip the newlines from the result of
 -- 'lines''.
 --
--- This behaves slightly differently than the old split: the number of
--- resulting strings here is equal to the number of newline characters
--- in the underlying string. This is much more consistent than the old
--- behaviour which blindly used @ByteString@s split and stitched the
--- result back together which was inconsistent with the rest of the
--- interface which worked with number of newlines.
+-- Implementation note: GHC does a pretty good job of optimizing
+-- this naive version. Hand coding a loop should be unnecessary
+-- here.
 lines :: YiString -> [YiString]
-lines = Prelude.map dropNl . lines'
-  where
-    dropNl (YiString t)  = case viewr t of
-      EmptyR -> Yi.Rope.empty
-      ts :> ch@(Chunk l tx) ->
-        YiString $ ts |- if TX.null tx
-                         then ch
-                         else case TX.last tx of
-                           '\n' -> Chunk (l - 1) (TX.init tx)
-                           _ -> ch
+lines = fmap fromText . TX.lines . toText
 
 -- | Splits the 'YiString' into a list of 'YiString' each containing a
 -- line.
@@ -611,10 +605,15 @@ lines = Prelude.map dropNl . lines'
 -- but the underlying structure might change: notably, chunks will
 -- most likely change sizes.
 lines' :: YiString -> [YiString]
-lines' t = let (YiString f, YiString s) = splitAtLine' 0 t
-           in if T.null s
-              then if T.null f then [] else [YiString f]
-              else YiString f : lines' (YiString s)
+lines' = splitByKeepingDelim '\n'
+
+splitByKeepingDelim :: Char -> YiString -> [YiString]
+splitByKeepingDelim x =
+    fmap fromText . fix go x . toText
+  where
+    go :: (Char -> TX.Text -> [TX.Text]) -> Char -> TX.Text -> [TX.Text]
+    go _ c (TX.span (/=c) -> (a, TX.null -> True)) = [a]
+    go f c (TX.span (/=c) -> (a,b)) = a `TX.snoc` c : f c (TX.tail b)
 
 -- | Joins up lines by a newline character. It does not leave a
 -- newline after the last line. If you want a more classical
@@ -629,21 +628,13 @@ unlines = Yi.Rope.intersperse '\n'
 -- conversions upon consecutive chunks. We should be able to speed it
 -- up by running it in parallel over multiple chunks.
 any :: (Char -> Bool) -> YiString -> Bool
-any p = go . fromRope
-  where
-    go x = case viewl x of
-      EmptyL -> False
-      Chunk _ t :< ts -> TX.any p t || go ts
+any p = Prelude.or . fmap (TX.any p) . toTextList
 
 -- | 'YiString' specialised @all@.
 --
 -- See the implementation note for 'Yi.Rope.any'.
 all :: (Char -> Bool) -> YiString -> Bool
-all p = go . fromRope
-  where
-    go x = case viewl x of
-      EmptyL -> True
-      Chunk _ t :< ts -> TX.all p t && go ts
+all p = Prelude.and . fmap (TX.all p) . toTextList
 
 -- | To serialise a 'YiString', we turn it into a regular 'String'
 -- first.
